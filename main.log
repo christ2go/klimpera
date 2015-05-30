@@ -1,0 +1,3749 @@
+pr adjazenzmatrix_erstelle :nummer
+	localmake "list []
+	for (liste "i 1 :nummer) [
+		localmake "ls []
+		for (liste "j 1 :nummer) [
+			make "ls ml 0 :ls
+		]
+		make "list ml :ls :list
+	]
+	op :list
+ende
+
+pr adjazenzmatrix_findpath :matrix :startnode :endnode [:path []]
+	wenn :path = [] [
+		localmake "search :startnode
+	]
+	wenn memberp :startnode :path [
+		rk
+	]
+	localmake "path ml :startnode :path
+	if :startnode = :endnode [
+		make "moegliche_pfade (ml :path :moegliche_pfade)
+		rk
+	]
+
+	foreach filter [not (? = 0)] map [wennsonst ? = 1 # 0] map [item :startnode ?] :matrix [
+		(adjazenzmatrix_findpath :matrix ? :endnode :path)
+	]
+
+ende
+
+pr adjazenzmatrix_iszykl :matrix :startnode :endnode [:path []]
+	wenn memberp :startnode :path [
+		make "zyklisch "wahr
+		rk
+	]
+	if :startnode = :endnode [
+		rk
+	]
+
+	localmake "path ml :startnode :path
+	if :startnode = :endnode [
+		rk
+	]
+
+	foreach filter [not (? = 0)] map [wennsonst ? = 1 # 0] item :startnode :matrix [
+		(adjazenzmatrix_iszykl :matrix ? :endnode :path)
+	]
+
+ende
+
+pr adjazenzmatrix_verbinde :matrix :a :b
+	localmake "newmatrix []
+	foreach :matrix [
+		wennsonst # = :a [
+			localmake "newrow []
+			foreach ? [
+				wennsonst # = :b [
+					setze "newrow ml 1 :newrow
+				][
+					setze "newrow ml ? :newrow
+				]
+			]
+			setze "newmatrix (ml :newrow :newmatrix)
+		] [
+			setze "newmatrix (ml ? :newmatrix)
+		]
+	]
+	op :newmatrix
+ende
+
+pr block_opt_evaluate :node
+	if (item 1 :node) = "TERM [
+		op block_opt_evaluate_term :node
+	]
+	if (item 1 :node) = "EXPRESSION [
+		op block_opt_evaluate_expression :node
+	]
+	if (item 1 :node) = "NUMBER [
+		op item 2 :node
+	]
+ende
+
+pr block_opt_evaluate_expression :node
+	; Letzter Schritt: Setze Liste auf [term [number x]]
+		localmake "res block_opt_evaluate (item 3 :node)
+		foreach (oe oe oe :node) [
+			localmake "rt block_opt_evaluate (item 2 ?)
+			if (item 1 ?) = "PLUS [
+				make "res :rt+:res
+			]
+
+			if (item 1 ?) = "MINUS [
+				make "res ganzzahl :rt-:res
+			]
+		]
+	op :res
+ende
+
+pr block_opt_evaluate_term :node
+	; Letzter Schritt: Setze Liste auf [term [number x]]
+	localmake "res block_opt_evaluate item 2 :node
+		foreach (oe oe :node) [
+			localmake "rt block_opt_evaluate item 2 ?
+			if (item 1 ?) = "TIMES [
+				make "res :rt*:res
+			]
+
+			if (item 1 ?) = "DIVIDE [
+				make "res ganzzahl :res/:rt
+			]
+		]
+	op :res
+ende
+
+pr block_optimization :block :nr [:depth 0]
+	wenn :depth = 3 [stop]
+	; Optimiert innerhalb eines Blockes
+	block_optimization_constant_propagation :block
+	; Analyze nach Setzen von Variablen
+	localmake "const_vars []
+	block_optimization_const_vars :nr :block
+	wenn :depth = 0 [make "block_vars ml block_optimization_used_variables :block :block_vars]
+	;(block_optimization :block :nr :depth+1)
+ende
+
+pr block_optimization_const_vars :nr :block
+	localmake "var_dictionary []
+	foreach :blocks [
+		print #
+		foreach ?  [print ?]
+	]
+	wenn not (:old_block_vars = []) [
+		; Suche rekursiv nach anderen Konstanten Werten, welche bekannt seien könnten
+		localmake "zyklisch "false
+		localmake "moegliche_pfade []
+		foreach :blocks [
+			print # print ?
+		]
+		print :block_matrix
+		adjazenzmatrix_findpath :block_matrix :nr 1 
+		adjazenzmatrix_iszykl :block_matrix :nr länge :blocks
+		print (se "Finde "mögliche "Wege :nr  )
+		localmake "pfadresultate []
+		foreach :moegliche_pfade [
+			print ?
+			localmake "var_dict []
+			localmake "my_dict []
+			; Auswertung eines möglichen Weges
+			foreach reverse ? [
+				foreach item ? :old_block_vars  [
+					print ?
+					localmake "varname item 1 ?
+					;print item 2 ?
+					; Liegt etwas konstantes vor
+					wenn (alle? (item 1 item 2 ?)="EXPRESSION
+						    leer? item 2 item 2 ?
+						    (item 1 item 3 item 2 ?)="TERM
+						    (länge item 3 item 2 ?) = 2
+						    (memberp item 1 item 2 item 3 item 2 ? [NAME NUMBER])
+						) [
+						; => Ergänzen zum Dictionary
+						localmake "abh [0]
+						if (item 1 item 2 item 3 item 2 ?) = "NAME [
+							; Lösche abhängige Einträge
+							make "my_dict filter [not (item 1 item 3 ?)=:varname ] :my_dict
+							; Alle Zuweisungen filtern
+							make "abh ml item 2 item 2 item 3 item 2 ? []
+						]
+						make "my_dict filter [not (item 1 ?)=:varname] :my_dict
+						localmake "zyklisch "false
+						adjazenzmatrix_iszykl :block_matrix :nr länge :blocks
+						wenn not :zyklisch [ ; Zyklisch = Schleife, VERMEIDEN!
+							make "my_dict ml ml :abh ? :my_dict 
+						]
+						
+					]
+				]
+			]
+			make "pfadresultate ml :my_dict :pfadresultate
+
+			;wenn :nr = 4 [throw "toplevel]print (se :nr)
+		]
+		wenn :nr = 4 [throw "toplevel]
+		
+	] 
+	foreach :block [
+		
+		wenn (item 1 ?) = "ASSIGN [
+			
+			; Habe irgendetwas anderes gefunden => Propagation
+			localmake "varusedlist []
+			code_opt_treesearch ? "code_opt_treesearch_comperator_variable "code_opt_appendvars
+			foreach :varusedlist [
+				localmake "var ?
+				localmake "vname item 2 ?
+				foreach :var_dictionary [
+					wenn (item 1 ?) = :vname [
+						print (se "Replacing :vname "with (item 2 ?))
+						.setbf :var (bf item 2 item 3 item 2 ?)
+						.setfirst :var first item 2 item 3 item 2 ?
+					] 
+				]
+			]
+			
+		
+			; Überprüfen ob Integer Variable
+			if (typecheck (liste "NAME (item 2 ?))) = "I [
+				;print (se "Assigning "to (item 2 ?) (item 3 ?))
+				; Auf Konstantheit überprüfen
+				wennsonst (alle? (leer? item 2 item 3 ?) ((item 1 item 3 item 3 ?) = "TERM) ((länge item 2 item 3 item 3 ?) = 2)
+						
+					) [
+					wennsonst memberp item 1 item 2 item 3 item 3 ? [NUMBER NAME] [
+					;dz (se "Copy/andere "Propagation)
+					localmake "varname (item 2 ?)
+					make "var_dictionary ml (liste item 2 ? item 3 ?) filter [not (item 1 ?) = :varname] :var_dictionary
+					][
+					localmake "varname (item 2 ?)
+
+					make "var_dictionary filter [not (item 1 ?)=:varname] :var_dictionary
+					]
+				] [
+					localmake "varname (item 2 ?)
+
+					make "var_dictionary filter [not (item 1 ?)=:varname] :var_dictionary
+					print :var_dictionary
+
+				]
+			]
+		] 
+	] 
+	
+
+	print :var_dictionary
+	;throw "toplevel
+ende
+
+pr block_optimization_constant_propagation :block
+	foreach :block [
+			; Im Ausdruck benutzte Variablen auffinden
+			localmake "varusedlist []
+			wenn alle?(länge ?)>2 (not memberp ? [IF IFELSE WHILE FOR]) [
+			
+			wenn (typecheck ?) = "I [
+			print ?
+			foreach ? [
+			localmake "varusedlist []
+				wenn (länge ?)>2 [
+				code_opt_treesearch ? "code_opt_treesearch_comperator_fc_or_variable "code_opt_appendvars
+				wenn (länge :varusedlist) = 0 [
+					wenn ((el 1 ?) = "EXPRESSION) [
+						localmake "res block_opt_evaluate ?
+						.setbf ? (liste (liste ) (liste "TERM (liste "NUMBER :res)))
+					]
+				] ]
+
+			] ] ]
+	]
+ende
+
+pr block_optimization_used_variables :block
+	localmake "vars []
+	foreach :block [
+		if(item 1 ?) = "ASSIGN [
+			localmake "varname (item 2 ?)
+			wennsonst (länge filter [(item 1 ?) = :varname] :vars) = 0 [
+				setze "vars ml (oe ?) :vars
+			] [
+				setze "vars ml (oe ?) filter [not (item 1 ?) = :varname] :vars
+			]
+			; 
+		] 
+	]
+	print :vars
+	
+	op :vars
+ende
+
+pr code_opt :prg
+	; Optimierung von Code
+	print (se "Optimiere "den "Code)
+	localmake "varusedlist []
+	
+	foreach (liste (item 1 (item 3 :prg))) [
+		localmake "currentfunc ?
+		print (item 3 ?)
+		print (item 4 ?)
+		foreach (item 5 ?) [
+			code_opt_treesearch ? "code_opt_treesearch_comperator_variable "code_opt_appendvars
+		]
+		print :varusedlist
+		; Eliminiere Dopplungen
+		localmake "newlist []
+		foreach :varusedlist [
+			wenn not element? ? :newlist [
+				make "newlist ml (item 2 ?) :newlist
+			]
+		]
+		print :newlist
+		; Erstelle Liste aller Variablen
+		localmake "allvars []
+		foreach oe ol (item 3 ?) [
+				if memberp (item 1 ?) (liste "ARRAYARG "NAMEARG)
+				[
+					make "allvars ml (item 3 ?) :allvars
+				] ; Records werden nicht optimiert
+		]
+		foreach oe (item 4 ?) [
+			if (item 1 ?) = "NAME
+			[
+				make "allvars ml (item 3 ?) :allvars
+			]
+			if (item 1 ?) = "ARRAY [
+				make "allvars ml (item 3 ?) :allvars
+			]
+		]
+		localmake "leichtzuloesch [] 	; Variablen, deren Refenzen "einfach" nur gelöscht werden müssen
+		localmake "schwierigzuloesch [] ; Variablen, welche auch in Funktionsaufrufen gelöscht werden müssen.
+		print :allvars
+		; Duplikate herausfiltern
+		foreach :allvars [
+			if not memberp ? :newlist [
+				dz (se "Unbenutzte "Variable ?)
+				; TODO Löschen, falls lokale
+				;      globales Ersetzen falls Übergabeargument
+				localmake "unusedvar ?
+				foreach oe ol (item 3 :currentfunc) [
+					if (item 3 ?) = :unusedvar [
+						setze "schwierigzuloesch ml :unusedvar :schwierigzuloesch
+					]
+				]
+				foreach oe (item 4 :currentfunc) [
+					if  memberp (item 1 ?) [NAME ARRAY]
+					[
+						if (item 3 ?) = :unusedvar [
+							setze "leichtzuloesch ml :unusedvar :leichtzuloesch
+						]
+						; Es reicht aus diese Variable einfach zu löschen
+						
+					]
+				]	  
+			]
+		]
+
+		; zu loeschende Variablen sind gefunden => Liste der Funktionsaufrufe für JEDE Funktion erstellen
+		print :leichtzuloesch
+		print :schwierigzuloesch
+		; Zum loeschen von "Leicht zu loeschenden Variablen" müssen diese einfach nur aus der Liste von lokalen Variablen entfernt werden
+		
+		; 2.Analyse werden Variablen ohne Zuweisung verwendet (nur skalare Typen)
+		localmake "skavars []
+		print ftable_get (item 2 :currentfunc)
+		foreach (item 2 ftable_get (item 2 :currentfunc)) [
+			if memberp (item 1 ?) [A I R C] [
+				; Skalare Variable
+				make "skavars ml ? :skavars
+			]
+		]
+
+		foreach (item 3 ftable_get (item 2 :currentfunc)) [
+			if memberp (item 1 ?) [I] [ ; Nur Integer Variablen für Optimierungen
+				; Skalare Variable
+				make "skavars ml ? :skavars
+			]
+		]
+		print :skavars
+		localmake "varusedlist []
+		localmake "usedvars []
+		
+		
+		; Optimierungen werden nun begonnen
+		localmake "numblocks code_opt_controlflow_getnumber (item 5 ?)
+		localmake "blocks []
+		localmake "block_matrix adjazenzmatrix_erstelle :numblocks
+		code_opt_controlflow_getblock (item 5 ?) 
+		
+		print :numblocks
+		foreach :blocks [
+			print #
+			foreach ? [print ?]]
+		foreach :block_matrix [
+			print (se # ?)
+		]
+		localmake "block_vars []; Für VAR : WERT Ketten
+		FOR [i 1 2] [
+			localmake "old_block_vars  :block_vars
+			localmake "block_vars []
+		; Für jeden grundlegenden Block werden nun Optimierungen vorgenommen werden
+			localmake "currentfunc ftable_get item 2 ?
+			foreach :blocks [
+					block_optimization ? #
+			]
+		]
+		;localmake "zyklisch "false
+		;localmake "moegliche_pfade []
+		;adjazenzmatrix_findpath :block_matrix 4 1 
+		;adjazenzmatrix_iszykl :block_matrix 4 länge :blocks
+		;print :moegliche_pfade
+		;print :zyklisch
+		throw "toplevel
+	]
+	
+ende
+
+pr code_opt_append_optnodes :node
+	make "optnodes ml :node :optnodes
+ende
+
+pr code_opt_appendvars :node
+	make "varusedlist ml :node :varusedlist
+ende
+
+pr code_opt_controlflow_getblock :prg
+		localmake "current_block []
+		foreach :prg [
+			print ?
+			localmake "node ?
+			localmake "break "false
+			foreach [FOR IF IFELSE WHILE][
+				if (item 1 :node) = ? [
+					if (item 1 :node) = "WHILE [
+						make "blocks (ml :current_block :blocks)
+						localmake "currentnum (länge :blocks)
+						; Verbinde die Blöcke)
+						
+						make "blocks (ml (liste ol :node) :blocks)
+						localmake "current_num länge :blocks 
+
+						make "block_matrix adjazenzmatrix_verbinde :block_matrix (länge :blocks)-1 (länge :blocks) 
+						make "block_matrix adjazenzmatrix_verbinde :block_matrix (länge :blocks) (länge :blocks)+1
+						code_opt_controlflow_getblock (item 3 :node)
+						make "block_matrix adjazenzmatrix_verbinde :block_matrix (länge :blocks) (länge :blocks)+1
+						make "block_matrix adjazenzmatrix_verbinde :block_matrix (länge :blocks) :current_num  
+						make "break "true
+						make "current_block []
+
+					]
+
+					if (item 1 :node) = "FOR [
+						make "blocks (ml :current_block :blocks)
+						make "blocks (ml (liste ol :node) :blocks)
+						make "block_matrix adjazenzmatrix_verbinde :block_matrix (länge :blocks)-1 (länge :blocks) 
+						make "block_matrix adjazenzmatrix_verbinde :block_matrix (länge :blocks) (länge :blocks)+1
+ 
+						
+						localmake "currentnum (länge :blocks)
+
+						code_opt_controlflow_getblock item 6 :node
+						make "current_block []
+						make "block_matrix adjazenzmatrix_verbinde :block_matrix :current_num  (länge :blocks)+1
+
+						make "break "true
+					]
+					
+					if (item 1 :node) = "IF [
+						make "current_block (ml ol :node :current_block)
+						make "blocks (ml :current_block :blocks)
+						localmake "current_num länge :blocks 
+						make "block_matrix adjazenzmatrix_verbinde :block_matrix (länge :blocks) (länge :blocks)+1 
+						code_opt_controlflow_getblock item 3 :node
+						make "block_matrix adjazenzmatrix_verbinde :block_matrix (länge :blocks) (länge :blocks)+1 
+						make "block_matrix adjazenzmatrix_verbinde :block_matrix :current_num  (länge :blocks)+1 
+						make "current_block []
+						make "break "true
+
+					]
+					if (item 1 :node) = "IFELSE [
+						make "current_block (ml ol ol :node :current_block)
+						make "blocks (ml :current_block :blocks)
+
+						localmake "current_num länge :blocks 
+						print :current_num
+						make "block_matrix adjazenzmatrix_verbinde :block_matrix (länge :blocks) (länge :blocks)+1 
+						
+						code_opt_controlflow_getblock item 3 :node
+						localmake "afterelse länge :blocks
+						make "block_matrix adjazenzmatrix_verbinde :block_matrix :current_num  (länge :blocks)
+						
+						code_opt_controlflow_getblock item 4 :node
+						make "block_matrix adjazenzmatrix_verbinde :block_matrix :afterelse (länge :blocks)+1 
+						make "block_matrix adjazenzmatrix_verbinde :block_matrix (länge :blocks) (länge :blocks)+1
+						make "block_matrix adjazenzmatrix_verbinde :block_matrix :current_num  (länge :blocks)
+						make "break "true
+						make "current_block []
+
+					]
+				]
+				
+			]
+			if not :break [
+						make "current_block (ml ? :current_block)
+			]
+			;print ?
+		]
+		make "blocks (ml :current_block :blocks)
+
+ende 
+
+pr code_opt_controlflow_getnumber :prg
+		localmake "number 0
+		foreach :prg [
+			localmake "node ?
+			foreach [FOR IF IFELSE WHILE][
+				if (item 1 :node) = ? [
+					setze "number :number+1
+					if (item 1 :node) = "WHILE [
+						setze "number 1+(:number)+code_opt_controlflow_getnumber item 3 :node
+					]
+
+					if (item 1 :node) = "FOR [
+						setze "number 1+(:number)+code_opt_controlflow_getnumber item 6 :node
+					]
+					
+					if (item 1 :node) = "IF [
+						setze "number (:number)+code_opt_controlflow_getnumber item 3 :node
+					]
+					if (item 1 :node) = "IFELSE [
+						setze "number (:number)+code_opt_controlflow_getnumber item 3 :node
+						setze "number (:number)+code_opt_controlflow_getnumber item 4 :node
+					]
+
+				]
+			]
+			print ?
+		]
+		op :number+1
+
+ende 
+
+pr code_opt_treesearch :search :comperator :callback [:first "false ]; Callback ist der Name einer Prozedur, welche bei Fund aufgerufen werden soll
+	; Suche in Listen nach Element :find
+	if :first [
+		wennsonst apply :comperator (liste ?) [
+			; Aufruf
+			apply :callback (liste ?)
+		] [
+			
+		]
+
+	]
+	foreach :search [
+		wennsonst apply :comperator (liste ?) [
+			; Aufruf
+			apply :callback (liste ?)
+		] [
+			
+		]
+		wenn listp ? [
+				code_opt_treesearch ? :comperator :callback
+		]
+	]
+ende
+
+pr code_opt_treesearch_comperator_def_use :node
+	wenn leer? :node [op "false]
+	foreach :node [
+		if memberp "NAME ? [op "true]
+	]
+	op (item 1 :node) = "ASSIGN 
+ende
+
+pr code_opt_treesearch_comperator_equals :a
+	wenn :a = "a [op "true]
+	op "false
+ende
+
+pr code_opt_treesearch_comperator_expression :node
+	wenn leer? :node [op "false]
+	op memberp (item 1 :node) [EXPRESSION] 
+ende
+
+pr code_opt_treesearch_comperator_fc_or_variable :node
+	wenn emptyp :node [op "false]
+	wenn memberp (item 1 :node) [NAME FUNCCALL] [op "true]
+	op "false
+ende
+
+pr code_opt_treesearch_comperator_variable :node
+	if emptyp :node [
+		op "false
+	]
+	if (item 1 :node) = "NAME [
+		op "true
+	]
+	op "false
+ende
+
+pr code_opt_treesearch_preorder :search :comperator :callback
+	foreach :search [
+		wenn listp ? [
+				code_opt_treesearch_preorder ? :comperator :callback
+		]
+		wennsonst apply :comperator (liste ?) [
+			; Aufruf
+			apply :callback (liste ?)
+		] [
+			
+		]
+		
+	]
+ende
+
+pr codegen_clr :node
+	; Codegenerierung für CLR
+	if (item 1 :node) = "PROGRAMME [
+		codegen_clr_programme :node
+		rk
+	]
+	if (item 1 :node) = "FUNCTION [
+		codegen_clr_function :node
+		rk
+	]
+
+	if (item 1 :node) = "EXPRESSION [
+		codegen_clr_expression :node
+		rk
+	]
+
+	if (item 1 :node) = "TERM [
+		codegen_clr_term :node
+		rk
+	]
+
+	if (item 1 :node) = "NUMBER [
+		(print "ldc.i4 (item 2 :node))
+		rk
+	]
+
+	if (item 1 :node) = "REALNUMBER [
+		(print "ldc.r4 (item 2 :node))
+		rk
+	]
+
+	if (item 1 :node) = "ASSIGN [
+		codegen_clr_assign :node
+		rk
+	]
+
+	if (item 1 :node) = "FUNCCALL [
+		codegen_clr_funccall :node
+		rk
+	]
+
+	if (item 1 :node) = "NAME [
+		codegen_clr_name :node
+		rk
+	]
+
+	if (item 1 :node) = "ARRAYASSIGN [
+		codegen_clr_arrayassign :node
+		rk
+	]
+
+	if (item 1 :node) = "ARRAYELEM [
+		codegen_clr_arrayelem :node
+		rk
+	]
+
+	if (item 1 :node) = "FOR [
+		codegen_clr_for :node
+		rk
+	]
+
+	if (item 1 :node) = "VALRETURN [
+		codegen_clr_valreturn :node
+		rk
+	]
+
+	if (item 1 :node) = "IF [
+		codegen_clr_if :node
+		rk
+	]
+	if (item 1 :node) = "WHILE [
+		codegen_clr_while :node
+		rk
+	]
+	if (item 1 :node) = "IFELSE [
+		codegen_clr_ifelse :node
+		rk
+	]
+
+	; RECORD THINGS
+	; (1) Recordvariablen als Teile von Expr
+	if (item 1 :node) = "ARRAYFIELD [
+		 codegen_clr_arrayfield :node ; TODO
+		 rk
+	]
+
+	if (item 1 :node) = "FIELDACCESS [
+		 codegen_clr_fieldaccess :node ; DONE
+		rk
+	]
+
+	if (item 1 :node) = "FIELDARRAYACCESS [
+		codegen_clr_fieldarrayaccess :node ; TODO
+		rk
+	]
+
+	if (item 1 :node) = "ARRAYFIELDARRAY [
+		codegen_clr_arrayfieldarray :node ; Done 
+		rk
+	]
+	; (2) Zuweisungen zu Records
+	if (item 1 :node) = "ARRAYFIELDARRAYASSIGN [
+		codegen_clr_arrayfieldarrayassign :node ; Done
+		rk 
+	]
+
+	if (item 1 :node) = "ARRAYFIELDASSIGN [
+		codegen_clr_arrayfieldassign :node ; Done
+		rk
+	]
+
+	if (item 1 :node) = "FIELDASSIGN [
+		codegen_clr_fieldassign :node  ; Done
+		rk
+	]
+
+	if (item 1 :node) = "FIELDARRAYASSIGN [
+		codegen_clr_fieldarrayassign :node ; Done
+		rk
+	]
+ende
+
+pr codegen_clr_arrayassign :node
+
+	localmake "name item 2 item 2 :node
+	codegen_clr item 2 :node
+	; Arrayreferenz auf Operandenstack geladen
+	; Index laden
+	codegen_clr (item 3 :node)
+	; Wert laden
+	codegen_clr (item 4 :node)
+
+	; Korrekten stelem Befehl ausführen
+	localmake "type typecheck (item 4 :node)
+	localmake "types (liste
+				(liste "R "stelem.r4)
+				(liste "I "stelem.i4)
+				(liste "C "stelem.i4)
+			 )
+	
+	
+	print item 2 item 1 filter [:type = (item 1 ?)] :types
+ende
+
+pr codegen_clr_arrayelem :node
+	codegen_clr (item 2 :node)
+	codegen_clr (item 3 :node)
+	localmake "type typecheck item 2 :node
+	localmake "types (liste 
+				(liste "AR "ldelem.r4)
+				(liste "AI "ldelem.i4)
+				(liste "AC "ldelem.i4)
+			)
+	print item 2 item 1 filter [(item 1 ?) = :type] :types
+	
+ende
+
+pr codegen_clr_arrayfield :node
+	print :node
+ende
+
+pr codegen_clr_arrayfieldarray :node
+	codegen_clr (item 2 :node) ; Referenz auf Record
+	codegen_clr (item 3 :node)
+	print (se "ldelem.ref)
+	; Record liegt auf dem Stack
+	localmake "recordname oe typecheck (item 2 :node)
+	localmake "record item 1 filter [(item 1 ?) = :recordname] :records
+	; Typ des Elementes herausfinden
+	localmake "array item 1 filter [(item 3 ?) = (item 4 :node)] item 2 :record
+	localmake "types (liste
+				(liste "INT "|int32[]|)
+				(liste "CHAR "|char[]| )
+				(liste "REAL "|real[]| )
+	)
+	print (se "ldfld item 2 item 1 filter [(item 2 :array) = (item 1 ?)] :types (wort :recordname ":: (item 4 :node )))
+	codegen_clr (item 5 :node)
+	print (se "ldelem item 2 item 1 filter [(item 2 :array) = (item 1 ?)] :types)
+ 
+ende
+
+pr codegen_clr_arrayfieldarrayassign :node
+	codegen_clr (item 2 :node) ; Referenz auf Array of Record
+	codegen_clr (item 3 :node)
+	print (se "ldelem.ref)
+	; Record liegt auf dem Stack
+	localmake "recordname oe typecheck (item 2 :node)
+	localmake "record item 1 filter [(item 1 ?) = :recordname] :records
+	; Typ des Elementes herausfinden
+	localmake "array item 1 filter [(item 3 ?) = (item 4 :node)] item 2 :record
+	localmake "types (liste
+				(liste "INT "|int32[]|)
+				(liste "CHAR "|char[]| )
+				(liste "REAL "|real[]| )
+	)
+	print (se "ldfld item 2 item 1 filter [(item 2 :array) = (item 1 ?)] :types (wort :recordname ":: (item 4 :node )))
+
+	; 
+	codegen_clr (item 5 :node)
+	codegen_clr (item 6 :node)
+	; stelem befehl absetzen
+	localmake "types (liste
+				(liste "INT "|int32|)
+				(liste "CHAR "|char| )
+				(liste "REAL "|real| )
+	)
+	print (se "stelem item 2 item 1 filter [(item 2 :array) = (item 1 ?)] :types)
+ende
+
+pr codegen_clr_arrayfieldassign :node
+	codegen_clr (item 2 :node) ; Referenz auf Array der Klasse
+	codegen_clr (item 3 :node)
+	print (se "ldelem.ref)
+	; Sucht nach a) Record, dann 
+	localmake "t item 2 item 1 filter [(item 3 ?) = (item 4 :node)] item 2 item 1 filter [(oe typecheck (item 2 :node))= (item 1 ?) ] :records 
+	localmake "types (liste
+			(liste "INT "int32)
+			(liste "REAL "float32)
+			(liste "CHAR "char)
+	)
+	
+	localmake "typenname item 2 item 1 filter [(item 1 ?) = :t] :types ; Typennamen herausfinden
+	codegen_clr (item 5 :node)
+	print (se "stfld :typenname  (wort (oe typecheck (item 2 :node)) ":: (item 4 ?)))
+ende
+
+pr codegen_clr_assign :node
+	localmake "name (item 2 :node)
+	localmake "var item 1 filter [(item 2 ?) = :name](concat map [me "A ?] :args map [me "V ?] :vars )
+	codegen_clr item 3 :node
+
+	if (item 1 :var) = "A [
+		print (se "starg (item 3 :var))
+	]
+	
+	if (item 1 :var) = "V [
+		print (se "stloc (item 3 :var))
+	]
+ende
+
+pr codegen_clr_expression :node
+	localmake "exprtyp typecheck :node
+	; Wichtig: Korrekte Instruktionen je nach Typ auswählen
+	if :exprtyp = "I [
+		codegen_clr (item 3 :node)
+		foreach (oe oe oe :node) [
+			codegen_clr (item 2 ?)
+			if (item 1 ?) = "PLUS [
+				print "add
+			]
+
+			if (item 1 ?) = "MINUS [
+				print "sub
+			]
+		]
+
+ 	]
+
+	if :exprtyp = "AI [
+		codegen_clr (item 3 :node)
+		foreach (oe oe oe :node) [
+			codegen_clr (item 2 ?)
+		]
+	]
+	if :exprtyp = "AR [
+		codegen_clr (item 3 :node)
+		foreach (oe oe oe :node) [
+			codegen_clr (item 2 ?)
+		]
+	]
+	if :exprtyp = "AC [
+		codegen_clr (item 3 :node)
+		foreach (oe oe oe :node) [
+			codegen_clr (item 2 ?)
+		]
+	]
+	if :exprtyp = "R [
+		codegen_clr (item 3 :node)
+		foreach (oe oe oe :node) [
+			codegen_clr (item 2 ?)
+			if (item 1 ?) = "PLUS [
+				print "add
+			]
+
+			if (item 1 ?) = "MINUS [
+				print "sub
+			]
+		]
+	]
+
+	if :exprtyp = "C [
+		codegen_clr (item 3 :node)
+		foreach (oe oe oe :node) [
+			codegen_clr (item 2 ?)
+			if (item 1 ?) = "PLUS [
+				print "add
+			]
+
+			if (item 1 ?) = "MINUS [
+				print "sub
+			]
+		]
+	]
+ende
+
+pr codegen_clr_fieldaccess :node
+	print :node
+	localmake "recordname typecheck (item 2 :node)
+	localmake "record item 1 filter [(item 1 ?) = :recordname] :records
+	localmake "field item 1 filter [(item 3 ?) = (item 3 :node)] (item 2 :record)
+	localmake "types (liste
+				(liste "INT "int32)
+				(liste "REAL "float32)
+				(liste "CHAR "char)
+			 )
+	localmake "typedesc item 2 item 1 filter [(item 1 ?) = (item 2 :field)] :types
+	codegen_clr (item 2 :node)
+	print (se "ldfld :typedesc (wort :recordname ":: (item 3 :node)))
+ende
+
+pr codegen_clr_fieldarrayassign :node
+	codegen_clr (item 2 :node)
+	localmake "type typecheck (item 2 :node)
+	localmake "record item 1 filter [:type = (item 1 ?)] :records
+	localmake "elem item 1 filter [(item 3 ?) = (item 3 :node) ] (item 2 :record)
+	localmake "types (liste
+				(liste "INT "|int32[]| )
+				(liste "CHAR "|char[]|)
+				(liste "REAL "|float32[]| )
+			)
+	localmake "typedesc item 2 item 1 filter [(item 1 ?) = (item 2 :elem)] :types
+	print (se "ldfld :typedesc (wort :type ":: (item 3 ?)))
+	; Index 
+	codegen_clr (item 4 :node)
+	codegen_clr (item 5 :node)
+		localmake "types (liste
+				(liste "INT "|int32| )
+				(liste "CHAR "|char|)
+				(liste "REAL "|float32| )
+			)
+	localmake "typedesc item 2 item 1 filter [(item 1 ?) = (item 2 :elem)] :types
+
+	print (se "stelem :typedesc)
+	
+ende
+
+pr codegen_clr_fieldassign :node
+	codegen_clr (item 2 :node)
+	codegen_clr (item 4 :node)
+	localmake "recordname typecheck item 2 :node
+	localmake "record item 1 filter [(item 1 ?) = :recordname] :records
+	localmake "field item 1 filter [(item 3 ?) = (item 3 :node)] item 2 :record
+	localmake "type item 2 :field
+	localmake "types (liste
+		(liste "INT "int32)
+		(liste "CHAR "char)
+		(liste "REAL "float32)
+	)
+	localmake "typedesc item 2 item 1 filter [(item 1 ?) = :type] :types
+	print (se "stfld :typedesc (wort :recordname ":: (item 3 :field)))
+ende
+
+pr codegen_clr_for :node
+	codegen_clr (liste "ASSIGN (item 2 :node) (item 3 :node))
+	; Initialwerte gesetzt
+	localmake "loopbegin codegen_clr_generateLabel "forbegin
+	localmake "endloop codegen_clr_generateLabel "forend
+	print (wort :loopbegin ":)
+	ifelse (item 5 :node) = "TO [
+		codegen_clr (liste "NAME (item 2 :node))
+		codegen_clr (item 4 :node)
+		print (se "bgt :endloop)
+	] [
+		codegen_clr (liste "NAME (item 2 :node))
+		codegen_clr (item 4 :node)
+		print (se "blt :endloop)
+	]
+	foreach (item 6 :node) [
+		codegen_clr ?
+	]
+	;ASSIGN i [EXPRESSION [] [TERM [NAME i]] [PLUS [TERM [NUMBER 1]]]
+	codegen_clr (liste "ASSIGN (item 2 :node) (liste "EXPRESSION (liste ) (liste "TERM (liste "NAME (item 2 :node))) (liste "PLUS (liste "TERM (liste "NUMBER 1 )))))
+	print (se "br :loopbegin)
+	print (wort :endloop ":)
+	closeall
+	throw "toplevel
+ende
+
+pr codegen_clr_funccall :node
+	foreach oe item 3 :node [
+		codegen_clr ?
+	]
+	localmake "func ftable_get (item 2 :node)
+	localmake "types (liste 
+		(liste "I "int32 )
+		(liste "R "float32 )
+		(liste "C "char)
+		(liste "V "void)
+		(liste "AR "float32|[]|)
+		(liste "AC "int32|[]|)
+		(liste "AI "int32|[]|)
+	)
+	foreach :records [
+		make "types ml (liste (item 1 ?) (wort "class :prgname ":: (item 1 ?))) :types
+		make "types ml (liste (wort "A (item 1 ?)) (wort "class :prgname ":: (item 1 ?)) "|[]| ) :types
+	]
+	dz :types
+	dz lz item 4 :func
+	;localmake "rtt item 2 item 1 filter [(lz :func) = (item 1 ?)] :types
+	;print :func
+	localmake "returntype item 2 item 1 filter [(item 1 ?) = (lz item 4 :func)] :types
+	type (se "call :returntype (item 2 :node) "\( )
+	foreach  ol oe item 4 :func [
+		localmake "types (liste
+			(liste "INT "int32)
+			(liste "REAL "float32)
+			(liste "CHAR "char)
+		)
+		
+		localmake "tn item 2 ?
+		localmake "type filter [(item 1 ?) = :tn] :types
+		wennsonst not leer? :type [type item 2 item 1 :type][
+			print ?
+		]
+		wenn (item 1 ?) = "ARRAYARG [
+			type "|[]|
+		] 
+		if not # = (länge ol oe item 4 :func) [
+			type ",
+		]
+
+	]
+	type "\)
+	
+	print "
+
+ende
+
+pr codegen_clr_function :node
+	print (item 3 :node)
+	; Schritt 1 Initialisierungscode für die Methode
+	; Generierung von Signaturen
+	localmake "vars []
+	localmake "args []
+	; Setze die Funktionstabelle, um durch typechecks den Wert eines Stmts herauszufinde (astore oder istore)
+	localmake "currentfunc ftable_get (el 2 :node)
+	print "
+	localmake "c 0 ; c ist ein counter für den Slot
+	localmake "rtt 0
+	localmake "types (liste 
+		(liste "I "int32 )
+		(liste "R "float32 )
+		(liste "C "char)
+		(liste "V "void)
+		(liste "AR "float32|[]|)
+		(liste "AC "int32|[]|)
+		(liste "AI "int32|[]|)
+	)
+	foreach :records [
+		make "types ml (liste item 1 ? (satz "class ((item 1 ?)))) :types
+	]
+	localmake "rtt item 2 item 1 filter [(lz item 3 :node) = (item 1 ?)] :types
+	type (se ".method "public "static :rtt (item 2 :node) (wort "\( )) 
+	wenn (länge oe ol item 3 :node) > 0 [
+	foreach oe ol ol item 3 :node [
+		; Print Type (and comma?)
+		localmake "types (liste 
+					(liste "INT "int32 )
+					(liste "REAL "float32 )
+					(liste "CHAR "char)
+		)
+		make "types ml (liste item 1 ? (satz "class ((item 1 ?)))) :types
+		localmake "tn (item 2 ?)
+		type item 2 item 1 filter [(item 1 ?) = :tn] :types
+		if (item 1 ?) = "ARRAYARG [
+			type "|[]|
+		]
+		type ",
+		;Eintragen in Funktionsargumentstabelle
+		make "args ml (liste (item 3 ?) :c) :args
+		make "c :c+1
+		]
+	
+		if not emptyp oe ol item 3 :node [ ; Es gibt Funktionsübergabetypen :-)
+			localmake "types (liste 
+						(liste "INT "int32 )
+						(liste "REAL "float32 )
+						(liste "CHAR "char)
+			)
+			foreach :records [
+				make "types ml (liste item 1 ? (satz "class (wort (item 1 ?)))) :types
+			]
+					; Benutzerdefinierte Typen
+			localmake "tn (item 2 lz ol item 3 :node)
+			type item 2 item 1 filter [(item 1 ?) = :tn] :types
+			if (item 1 lz ol item 3 :node) = "ARRAYARG [
+				type "|[]|
+			]
+			make "args ml (liste (item 3 lz ol item 3 :node) :c) :args
+			make "c :c+1
+
+		]
+	]
+	type (se "\) "cil "managed)
+	print "\{
+	
+	; Überprüfe ob Hauptmethode aufgerufen (ignoriere groß und kleinschreibung)
+	if lowercase (item 2 :node) = "main [
+		print ".entrypoint
+	]
+	make "c 0
+
+	; Initialisiere die Lokalen Variablen
+	type (se ".locals "init "\( )
+	foreach oe ol item 4 :node [
+		
+		localmake "types (liste 
+					(liste "INT "int32 )
+					(liste "REAL "float32 )
+					(liste "CHAR "char)
+		)
+		
+		foreach :records [
+		make "types ml (liste item 1 ? (satz "class (wort (item 1 ?)))) :types
+		]
+		localmake "tn item 2 ?
+		localmake "type filter [(item 1 ?) = :tn] :types
+		wennsonst not leer? :type [type item 2 item 1 :type][
+			print ?
+		]
+		wenn (item 1 ?) = "ARRAY [
+			type "|[]|
+		]
+		type ",
+		make "vars ml (liste (item 3 ?) :c) :vars
+		make "c :c+1
+
+		
+	]
+	if not leer? lz oe item 4 :node [
+		localmake "types (liste 
+					(liste "INT "int32 )
+					(liste "REAL "float32 )
+					(liste "CHAR "char)
+		)
+		foreach :records [
+		make "types ml (liste item 1 ? (satz "class (wort (item 1 ?)))) :types
+		]
+		localmake "tn item 2 lz item 4 :node
+		localmake "type filter [(item 1 ?) = :tn] :types
+		wenn not leer? :type [type item 2 item 1 :type]
+		wenn (item 1 lz oe item 4 :node) = "ARRAY [
+			type "|[]|
+		]
+		make "vars ml (liste (item 3  lz item 4 :node) :c) :vars
+		make "c :c+1
+
+
+	]
+	type "\)
+	print "
+	; Vor dem restlichen Programm benötigen wir noch die Arraykonstruktoren
+	foreach oe item 4 :node [
+		
+		if (item 1 ?) = "ARRAY [
+			; Array gefunden => localen index suchen
+			localmake "name (item 3 ?)
+			localmake "slot item 2 item 1 filter [(item 1 ?) = :name] :vars
+			codegen_clr item 4 ?
+			; print the newarray instruction
+			localmake "types (liste 
+				(liste "INT "int32 )
+				(liste "REAL "float32 )
+				(liste "CHAR "char)
+			)
+			foreach :records [make "types ml (liste item 1 ? (satz (wort (item 1 ?)))) :types]
+			localmake "type item 2 ?
+			localmake "type item 2 item 1 filter [(item 1 ?) = :type] :types
+			print (se "newarr :type)
+			; Referenz auf Array ist jetzt auf dem Stack
+			print (se "stloc :slot)
+			; Initialisierung aufrufen, fals record typ
+			wenn not leer? find [(item 1 ?) = (item 1 :type)] :records [
+				; Arraykonstruktor aufrufen
+				print (se "ldloc :slot)
+				print (se "call "void (wort "__record__array_constructor__ (item 1 :type)) "\( "class (wort (item 1 :type) "|[]| ) "\))  
+			]
+		]
+	]
+	; Iteriere über Funktionsbauch (Function body)
+	foreach (item 5 :node) [
+		codegen_clr ?
+	]
+	print (se "\} )
+	closeall
+	throw "toplevel
+ende
+
+pr codegen_clr_generateLabel :helper
+	make "labelid :labelid+1
+	op (wort "IL_ :helper "_ :labelid)
+ende
+
+pr codegen_clr_if :node
+	; Generiere zuerst ein die Label
+	localmake "iflabel codegen_clr_generateLabel "if_begin
+	localmake "ifblock codegen_clr_generateLabel "if_code_segment
+	localmake "endlabel codegen_clr_generateLabel "if_end
+	; Generiere Code für die Bedingung
+	print (wort :iflabel ": )
+	codegen_clr (item 2 item 2 :node)
+	codegen_clr (item 4 item 2 :node)
+	; Überprüfe den Vergleichsoperator
+	localmake "conditions (liste
+		(liste "EQ "beq )
+		(liste "NE "bne  )
+		(liste "GT "bgt  )
+		(liste "GTE "bge )
+		(liste "LT "blt )
+		(liste "LTE "ble )	
+	)
+	print (se item 2 item 1 filter [(item 3 item 2 :node) = (item 1 ?)] :conditions :ifblock)
+	print (se "br :endlabel)
+	print (se :ifblock ":)
+	foreach item 3 :node [
+		codegen_clr ?
+	]
+	print (wort :endlabel ":)
+	
+ende
+
+pr codegen_clr_ifelse :node
+
+	localmake "iflabel codegen_clr_generateLabel "if_begin
+	localmake "ifblock codegen_clr_generateLabel "if_code_segment
+	localmake "elselabel codegen_clr_generateLabel "if_else
+	localmake "endlabel codegen_clr_generateLabel "if_end
+	; Generiere Code für die Bedingung
+	print (wort :iflabel ": )
+	codegen_clr (item 2 item 2 :node)
+	codegen_clr (item 4 item 2 :node)
+	; Überprüfe den Vergleichsoperator
+	localmake "conditions (liste
+		(liste "EQ "beq )
+		(liste "NE "bne  )
+		(liste "GT "bgt  )
+		(liste "GTE "bge )
+		(liste "LT "blt )
+		(liste "LTE "ble )	
+	)
+	print (se item 2 item 1 filter [(item 3 item 2 :node) = (item 1 ?)] :conditions :ifblock)
+	print (se "br :elselabel)
+	print (se :ifblock ":)
+	foreach item 3 :node [
+		codegen_clr ?
+	]
+	print (se "br :endlabel)
+	print (wort :elselabel ":)
+	foreach item 4 :node [
+		codegen_clr ?
+	]
+	print (wort :endlabel ":)
+	
+
+ende
+
+pr codegen_clr_name :node
+	localmake "var item 1 filter [(item 2 ?) = (item 2 :node)] (concat map [me "A ?] :args map [me "V ?] :vars )
+	if (item 1 :var) = "A [
+		print (se "ldarg (item 3 :var))
+	]
+	
+	if (item 1 :var) = "V [
+		print (se "ldloc (item 3 :var))
+	]
+ende
+
+pr codegen_clr_programme :node
+	localmake "labelid 0 ; Id für später erzeugt Label
+	localmake "prgname (item 2 :node)
+	print (se ".assembly :prgname "\{\} )
+	print (se ".assembly "extern "mscorlib "\{\} )
+			foreach :records [
+			
+			print (se ".class "private "auto "ansi "beforefieldinit (item 1 ?))
+			print (se "extends "\[mscorlib\]System.Object )
+			print "\{ 
+			foreach oe ? [
+				foreach ? [
+					if (item 1 ?) = "NAME [
+						localmake "types (liste 
+									(liste "INT "int32 )
+									(liste "REAL "float32 )
+									(liste "CHAR "char)
+								 )
+						localmake "me item 2 ?
+						localmake "t filter [:me = (item 1 ?)] :types
+						wenn leer? :t [
+							dz (satz "Der "Typ :me "wurde "nicht "gefunden. )
+							closeall
+							throw "toplevel
+						]
+						print (se ".field "public "static (item 2 item 1 :t) (item 3 ?))
+						
+					]
+					; TODO Arrays ?
+					if (item 1 ?) = "ARRAY [
+						localmake "types (liste 
+									(liste "INT "int32 )
+									(liste "REAL "float32 )
+									(liste "CHAR "char)
+								 ) 
+						localmake "me item 2 ?
+						localmake "t filter [:me = (item 1 ?)] :types
+						wenn leer? :t [
+							dz (satz "Der "Typ :me "wurde "nicht "gefunden. )
+							closeall
+							throw "toplevel
+						]
+						print (se ".field "public "static (wort (item 2 item 1 :t) "|[]| ) (item 3 ?))
+					]
+				]
+			]
+
+			; TODO Implementierung von Konstruktoren
+			; Konstruktor implementieren
+			print (se ".method "public "specialname "rtspecialname  "instance "void ".ctor|()| "cil "managed )
+			print "\{
+			localmake "recordname (item 1 ?)
+ 			foreach oe ? [
+				
+				foreach ? [
+					if (item 1 ?) = "ARRAY [
+						print (se "ldarg 0)
+						codegen_clr (item 4 ?)
+						localmake "types (liste 
+									(liste "INT "int32 )
+									(liste "REAL "float32 )
+									(liste "CHAR "char)
+								 )
+						localmake "me item 2 ?
+						print (se "newarr item 2 item 1 filter [(item 1 ?) = :me] :types)
+						print (se "stfld (wort item 2 item 1 filter [(item 1 ?) = :me] :types  "|[]| ) (wort :recordname ":: (item 3 ?)))
+					]
+				]
+			]
+			print "\}
+			print "\}
+
+			
+		]
+		localmake "clrtypes (liste
+			(liste "I "int32)
+			(liste "C "Char )
+			(liste "F "Float32 )
+			(liste "AI "int32\[\])
+			; TODO Add more types
+			)
+	; Generierung von "magischen" Initialisierungsmethoden
+	foreach :records [
+		localmake "recordname (item 1 ?)
+		print (se  ".method "static "void (wort "__record__array_constructor__ :recordname) "\( "class (wort :recordname "|[]| ) "\) )
+		print "\{
+			print (se ".locals "init "\( "int32,int32 "\) ) ; 0 speichert den aktuellen Indize, 1 die Länge
+			
+			print (se "ldc.i4 0)
+			print (se "stloc 0)
+			print (se "ldarg 0 )
+			print "ldlen
+			print (se "stloc 1)
+
+			; Emit the Label
+			localmake "WHILE_BEGIN codegen_clr_generateLabel "while_begin
+			localmake "WHILE_START codegen_clr_generateLabel "while_start
+			localmake "WHILE_END codegen_clr_generateLabel "while_end
+			print (wort :WHILE_BEGIN ": )
+			print (se "ldloc 0)
+			print (se "ldloc 1)
+			
+			print (se "blt :WHILE_START)
+			print (se "br :WHILE_END)
+			print (wort :WHILE_START ":)
+			
+			print (se "ldarg 0)
+			print (se "ldloc 0)
+			print (se "newobj "instance "void (wort :recordname "::.ctor "|()|))
+			print (se "stelem.ref)
+			
+			print (se "ldloc 0)
+			print (se "ldc.i4 1)
+			print "add
+			print (se "stloc 0)
+
+			print (se "br :WHILE_BEGIN)
+			print (wort :WHILE_END ":)
+			print (se "ret)
+		print "\}
+	]
+
+
+	foreach (item 3 :node) [
+		codegen_clr ?
+	]
+
+ende
+
+pr codegen_clr_term :node
+	localmake "exprtyp typecheck :node
+	wenn (länge :node) = 2 [
+		codegen_clr (item 2 :node)
+		rk
+	]
+	; Wichtig: Korrekte Instruktionen je nach Typ auswählen
+	if :exprtyp = "I [
+		codegen_clr item 2 :node
+		foreach (oe oe :node) [
+			codegen_clr item 2 ?
+			if (item 1 ?) = "TIMES [
+				print "mul
+			]
+
+			if (item 1 ?) = "DIVIDE [
+				print "div
+			]
+		]
+	]
+	if :exprtyp = "AI [
+		codegen_clr item 2 :node
+	]
+	if :exprtyp = "AR [
+		codegen_clr item 2 :node
+	]
+	if :exprtyp = "AC [
+		codegen_clr item 2 :node
+	]
+
+	if :exprtyp = "R [
+		codegen_clr item 2 :node
+		foreach (oe oe :node) [
+			codegen_clr item 2 ?
+			if (item 1 ?) = "TIMES [
+				print "mul
+			]
+
+			if (item 1 ?) = "DIVIDE [
+				print "div
+			]
+		]
+	]
+
+	if :exprtyp = "C [
+		codegen_clr (item 2 :node)
+		foreach (oe oe :node) [
+			codegen_clr (item 2 ?)
+			if (item 1 ?) = "TIMES [
+				print "mul
+			]
+
+			if (item 1 ?) = "DIVIDE [
+				print "div
+			]
+		]
+	]
+ende
+
+pr codegen_clr_valreturn :node
+	codegen_clr item 2 :node
+	print "ret
+ende
+
+pr codegen_clr_while :node
+	localmake "while_begin codegen_clr_generateLabel "WHILE_BEGIN
+	localmake "while_block codegen_clr_generateLabel "WHILE_BLOCK
+	localmake "while_end codegen_clr_generateLabel "WHILE_END
+	print (wort :while_begin ":)
+		codegen_clr (item 2 item 2 :node)
+	codegen_clr (item 4 item 2 :node)
+	; Überprüfe den Vergleichsoperator
+	localmake "conditions (liste
+		(liste "EQ "beq )
+		(liste "NE "bne  )
+		(liste "GT "bgt  )
+		(liste "GTE "bge )
+		(liste "LT "blt )
+		(liste "LTE "ble )	
+	)
+	print (se item 2 item 1 filter [(item 3 item 2 :node) = (item 1 ?)] :conditions :while_block)
+	
+	print (se "br :while_end)
+	print (wort :while_block ":)
+	foreach (item 3 :node) [
+		codegen_clr ?
+	]
+	print (se "br :while_begin)
+	print (wort :while_end ":)
+ende
+
+pr codegen_jvm :node
+	if (item 1 :node) = "PROGRAMME [
+		codegen_jvm_programme :node
+		rk
+	]
+	if (item 1 :node) = "FUNCTION [
+		codegen_jvm_function :node
+		rk
+	]
+
+	if (item 1 :node) = "EXPRESSION [
+		codegen_jvm_expression :node
+		rk
+	]
+
+	if (item 1 :node) = "TERM [
+		codegen_jvm_term :node
+		rk
+	]
+
+	if (item 1 :node) = "NUMBER [
+		(print "ldc (item 2 :node))
+		rk
+	]
+
+	if (item 1 :node) = "REALNUMBER [
+		(print "ldc (item 2 :node))
+		rk
+	]
+
+	if (item 1 :node) = "ASSIGN [
+		codegen_jvm_assign :node
+		rk
+	]
+
+	if (item 1 :node) = "FUNCCALL [
+		codegen_jvm_funccall :node
+		rk
+	]
+
+	if (item 1 :node) = "NAME [
+		codegen_jvm_name :node
+		rk
+	]
+
+	if (item 1 :node) = "ARRAYASSIGN [
+		codegen_jvm_arrayassign :node
+		rk
+	]
+
+	if (item 1 :node) = "ARRAYELEM [
+		codegen_jvm_arrayelem :node
+		rk
+	]
+
+	if (item 1 :node) = "FOR [
+		codegen_jvm_for :node
+		rk
+	]
+
+	if (item 1 :node) = "VALRETURN [
+		codegen_jvm_valreturn :node
+		rk
+	]
+
+	if (item 1 :node) = "IF [
+		codegen_jvm_if :node
+		rk
+	]
+	if (item 1 :node) = "WHILE [
+		codegen_jvm_while :node
+		rk
+	]
+	if (item 1 :node) = "IFELSE [
+		codegen_jvm_ifelse :node
+		rk
+	]
+	print :node
+ende
+
+pr codegen_jvm_arrayassign :node
+	; Referenz laden
+	localmake "slot item 2 item 1 filter [(item 1 ?) = (item 2 item 2 :node)] :localvars
+	wenn (länge :slot) <> 1 [
+		print (se "Nichtdeklarierte "Variable (item 2 item 2 :node) )
+	]
+	print (se "aload :slot )
+	; Element auf den Stack
+	codegen_jvm (item 3 :node)
+	; Wert auf den Stack
+	codegen_jvm (item 4 :node)
+	; Korrekten Store befehl
+	localmake "type typecheck (item 4 :node)
+	if :type = "R [
+		print "fastore
+	]
+
+	if :type = "C [
+		print "castore
+	]
+
+	if :type = "I [
+		print "iastore
+	]
+ende
+
+pr codegen_jvm_arrayelem :node
+	localmake "type  typecheck item 2 :node
+	localmake "slot "undef
+	foreach :localvars [
+		if (item 1 ?) = (item 2 item 2 :node) [
+			make "slot (item 2 ?)
+		]
+	]
+	print (se "aload :slot ) ; Arrayreferenz
+	codegen_jvm (item 3 :node) ; Indize
+	if :type = "AR [
+		print "faload
+	]
+
+	if :type = "AI [
+		print "iaload
+	]
+
+	if :type = "AC [
+		print "caload
+	]
+ende
+
+pr codegen_jvm_assign :node
+	;print :node
+	;print :localvars
+	codegen_jvm (item 3 :node)
+	localmake "type typecheck (item 3 :node)
+	; Get local Variable mumber
+	; FILTER / REDUCE ??? TODO
+	localmake "slot "undef
+	foreach :localvars [
+		if (item 1 ?) = (item 2 :node) [
+			make "slot (item 2 ?)
+		]
+	]
+	if :type = "I [
+		print (se "istore :slot)
+	]
+
+	if :type = "C [
+		print (se "cstore :slot)
+	]
+
+	if :type = "R [
+		print (se "fstore :slot)
+	]
+ende
+
+pr codegen_jvm_expression :node
+	localmake "exprtyp typecheck :node
+	; Wichtig: Korrekte Instruktionen je nach Typ auswählen
+	if :exprtyp = "I [
+		codegen_jvm (item 3 :node)
+		foreach (oe oe oe :node) [
+			codegen_jvm (item 2 ?)
+			if (item 1 ?) = "PLUS [
+				print "iadd
+			]
+
+			if (item 1 ?) = "MINUS [
+				print "isub
+			]
+		]
+	]
+
+	if :exprtyp = "R [
+		codegen_jvm (item 3 :node)
+		foreach (oe oe oe :node) [
+			codegen_jvm (item 2 ?)
+			if (item 1 ?) = "PLUS [
+				print "fadd
+			]
+
+			if (item 1 ?) = "MINUS [
+				print "fsub
+			]
+		]
+	]
+
+	if :exprtyp = "C [
+		codegen_jvm (item 3 :node)
+		foreach (oe oe oe :node) [
+			codegen_jvm (item 2 ?)
+			if (item 1 ?) = "PLUS [
+				print "iadd
+			]
+
+			if (item 1 ?) = "MINUS [
+				print "isub
+			]
+		]
+	]
+ende
+
+pr codegen_jvm_for :node
+	; x := nummer
+	print (se "\; "Forschleife )
+	codegen_jvm (item 3 :node) ; Startwert setzen
+	localmake "varname item 2 item 1 filter [(item 1 ?) = (item 2 :node)] :localvars 
+	; Variable finden
+	
+	print (se "istore :varname)
+
+	; Begin the while loop
+	localmake "beginfor (wort "label_for_start :labelid)
+	make "labelid :labelid+1
+
+	localmake "endfor (wort "label_end_start :labelid)
+	make "labelid :labelid+1
+	codegen_jvm (item 3 :node)
+	codegen_jvm (se "istore :varname)
+	print (wort :beginfor ":)
+	; Load the variable and emit compare instruction
+	
+	if (item 5 :node) = "TO [
+		codegen_jvm (item 4 :node)
+		codegen_jvm (se "iload :varname)
+		; cmp
+		print (se "if_icmplt :endfor)
+		foreach item 6 :node [
+			codegen_jvm ?
+		]
+
+		; Increment
+		print (se "iload :varname)
+		print (se "ldc "1)
+		print (se "iadd )
+		print (se "istore :varname)
+
+		print (se "goto :beginfor)
+
+	]
+
+	if (item 5 :node) = "DOWNTO [
+		codegen_jvm (item 4 :node)
+		codegen_jvm (se "iload :varname)
+		; cmp
+		print (se "if_icmpgt :endfor)
+		
+		foreach item 6 :node [
+			codegen_jvm ?
+		]
+		
+
+		; Decrement
+		print (se "iload :varname)
+		print (se "ldc "1)
+		print (se "isub )
+		print (se "istore :varname)
+
+		print (se "goto :beginfor)
+	]
+
+	print (wort :endfor ": )
+ende
+
+pr codegen_jvm_funccall :node
+
+	; Pushe Argumente auf den Stack
+	foreach oe item 3 :node [
+		codegen_jvm ?
+	]
+	foreach :funcsign [
+		if (item 1 ?) = (item 2 :node) [
+			print ?
+			print (satz "invokestatic (wort :prgname ". item 2 ?) )
+		]
+		
+	]
+	; Get the function signature
+	
+ende
+
+pr codegen_jvm_function :node
+	; Berechne die Funktionssignatur
+	foreach :funcsign [
+		if (item 1 ?) = (item 2 :node) [
+			print (se ".method "public "static item 2 ?)
+		]
+		
+	]
+	;print (item 4 :node)
+	; Anzahl der lokalen Variablen berechnen
+	localmake "locallength ((länge (item 3 :node)) - 2)+(länge (item 4 :node))-1
+	print (se ".limit "locals :locallength )
+	print (se ".limit "stack "32 )
+	localmake "lengtbeforevars ((länge (item 3 :node)) - 2) ; Anzahl der übergebenen Variablen
+	localmake "localvars [] ; Variable als assoziatives Array von Variablennamen und Position auf dem Stack von lokalen Variablen
+	localmake "currentvar 0
+	; Setze die Funktionstabelle, um durch typechecks den Wert eines Stmts herauszufinde (astore oder istore)
+	localmake "currentfunc ftable_get (el 2 :node)
+	foreach (oe ol item 3 :node) [
+		;(print item 3 ?)
+		make "localvars (ml (liste (item 3 ?) :currentvar) :localvars)
+		make "currentvar :currentvar+1
+	]
+	foreach (oe item 4 :node) [
+		;print (se "\; ? )
+		ifelse (first ?) = "ARRAY [
+			; Create the Array
+			codegen_jvm (item 4 ?)
+			if (item 2 ?) = "INT [
+				print (se "newarray "int )
+			]
+			if (item 2 ?) = "REAL [
+				print (se "newarray "float )
+			]
+			if (item 2 ?) = "CHAR [
+				print (se "newarray "char )
+			]
+			make "localvars (ml (liste (item 3 ?) :currentvar) :localvars)
+			print (se "astore :currentvar)
+		] [
+			make "localvars (ml (liste (item 3 ?) :currentvar) :localvars)
+		]
+		make "currentvar :currentvar+1
+	]
+	foreach (item 5 :node) [
+		codegen_jvm ?
+	]
+	print (se ".end "method )
+	;print :node
+ende
+
+pr codegen_jvm_if :node
+	print (se "\; "IF "Statement )
+	; Generate labels 
+	localmake "iftruelbl (wort "if-begin :labelid)
+	make "labelid :labelid+1
+	localmake "nextlbl (wort "if-end :labelid)
+	make "labelid :labelid+1
+	; Condition 1 
+	codegen_jvm (item 2 item 2 :node)
+	codegen_jvm (item 4 item 2 :node)
+	; Als nächstes die Condition
+	; print (item 3 item 2 :node)
+	; Assoziatives Array aus Condition Value Paren
+	localmake "ifconditionlist (liste 
+		(liste "EQ "if_icmpeq )
+		(liste "NE "if_icmpne  )
+		(liste "GT "if_icmpgt  )
+		(liste "GTE "if_icmpge )
+		(liste "LT "if_icmplt )
+		(liste "LTE "if_icmple )
+	
+	)
+	; Korrekte Instruktion mit Filter finden
+	localmake "ifinstr item 1 filter [(item 1 ?) = item 3 item 2 :node] :ifconditionlist
+	; Vergleich
+	print (se (item 2 :ifinstr) :iftruelbl)
+	; Sonst springe direkt zum Ende
+	print (se "goto :nextlbl ) ; If false
+	; Ab hier beginnt der "Trueteil"
+	print (wort :iftruelbl ": )
+	foreach item 3 :node [
+		codegen_jvm ?
+	]
+	; Ende des Ifelse Konstruktes
+	print (wort :nextlbl ": )
+	
+ende
+
+pr codegen_jvm_ifelse :node
+	; Label erstellen
+	localmake "iftruelabel (wort "ifelse-begin_ :labelid)
+	make "labelid :labelid + 1
+	localmake "ifelselabel (wort "ifelselabel_ :labelid)
+	make "labelid :labelid + 1
+	localmake "ifelseendlabel (wort "ifelseend_ :labelid)
+	make "labelid :labelid + 1
+
+	; #1 Bedingung
+	codegen_jvm (item 2 item 2 :node)
+	codegen_jvm (item 4 item 2 :node)
+	; Als nächstes die Condition
+	;print (item 3 item 2 :node)
+	; Assoziatives Array aus Condition Value Paren
+	localmake "ifconditionlist (liste 
+		(liste "EQ "if_icmpeq )
+		(liste "NE "if_icmpne  )
+		(liste "GT "if_icmpgt  )
+		(liste "GTE "if_icmpge )
+		(liste "LT "if_icmplt )
+		(liste "LTE "if_icmple )
+	
+	)
+	; Korrekte Instruktion mit Filter finden
+	localmake "ifinstr item 1 filter [(item 1 ?) = item 3 item 2 :node] :ifconditionlist
+	; Vergleich
+	print (se (item 2 :ifinstr) :iftruelabel)
+
+	; Springe zu else
+	print (se "goto :ifelselabel )
+	print (wort :iftruelabel ":)
+	; Ifteil
+	foreach item 3 :node [
+		codegen_jvm ?
+	]
+	; Springe zum ENde
+	print (se "goto :ifelseendlabel)
+	print (wort :ifelselabel ":)
+	; Generiere Code für elseteil
+	foreach item 4 :node [
+		codegen_jvm ?
+	]
+
+	; Gib ifelseend label aus
+	print (wort :ifelseendlabel ": )
+	
+ende
+
+pr codegen_jvm_name :node
+	; Check type
+	localmake "slot "undef
+	foreach :localvars [
+		if (item 1 ?) = (item 2 :node) [
+			make "slot (item 2 ?)
+		]
+	]
+	localmake "type typecheck :node
+	if :type = "I [
+		print (se "iload :slot)
+	]
+
+	if :type = "C [
+		print (se "cload :slot)
+	]
+
+	if :type = "R [
+		print (se "fload :slot)
+	]
+
+ende
+
+pr codegen_jvm_programme :node
+	print (se ".class (item 2 :node ))
+	make "prgname (item 2 :node)
+	foreach (item 3 :node) [
+		codegen_jvm ?
+	]
+ende
+
+pr codegen_jvm_term :node
+	localmake "exprtyp typecheck :node
+	; Wichtig: Korrekte Instruktionen je nach Typ auswählen
+	if :exprtyp = "I [
+		codegen_jvm (item 2 :node)
+		foreach (oe oe :node) [
+			codegen_jvm(item 2 ?)
+			if (item 1 ?) = "TIMES [
+				print "imul
+			]
+
+			if (item 1 ?) = "DIVIDE [
+				print "idiv
+			]
+		]
+	]
+
+	
+
+	if :exprtyp = "R [
+		codegen_jvm (item 2 :node)
+		foreach (oe oe :node) [
+			codegen_jvm (item 2 ?)
+			if (item 1 ?) = "TIMES [
+				print "fmul
+			]
+
+			if (item 1 ?) = "DIVIDE [
+				print "fdiv
+			]
+		]
+	]
+
+	if :exprtyp = "C [
+		codegen_jvm (item 2 :node)
+		foreach (oe oe :node) [
+			codegen_jvm (item 2 ?)
+			if (item 1 ?) = "TIMES [
+				print "imul
+			]
+
+			if (item 1 ?) = "DIVIDE [
+				print "idiv
+			]
+		]
+	]
+ende
+
+pr codegen_jvm_valreturn :node
+	localmake "type typecheck item 2 :node
+	codegen_jvm (item 2 :node)
+	if :type = "I [
+		print "ireturn
+	]
+
+	if :type = "R [
+		print "freturn
+	]
+ende
+
+pr codegen_jvm_while :node
+	localmake "beginwhile (wort "begin_while :labelid)
+	make "labelid :labelid+1
+	localmake "goonwhile (wort "goon_while :labelid)
+	make "labelid :labelid+1
+	localmake "endwhile (wort "end_while :labelid)
+	make "labelid :labelid+1
+	; 1st check while condition
+	print (wort :beginwhile ": )
+	codegen_jvm (item 2 item 2 :node)
+	codegen_jvm (item 4 item 2 :node)
+	; Als nächstes die Condition
+	; print (item 3 item 2 :node)
+	; Assoziatives Array aus Condition Value Paren
+	localmake "ifconditionlist (liste 
+		(liste "EQ "if_icmpeq )
+		(liste "NE "if_icmpne  )
+		(liste "GT "if_icmpgt  )
+		(liste "GTE "if_icmpge )
+		(liste "LT "if_icmplt )
+		(liste "LTE "if_icmple )
+	)
+	localmake "ifinstr item 1 filter [(item 1 ?) = item 3 item 2 :node] :ifconditionlist
+	; Vergleich
+	print (se (item 2 :ifinstr) :goonwhile)
+	print (se "goto :endwhile)
+	print (wort :goonwhile ": )
+	foreach item 3 :node [
+		codegen_jvm ?
+	]
+	print (se "goto :beginwhile)
+	print (wort :endwhile ":)
+	
+ende
+
+pr codegen_optimize_getres :node
+	if (item 1 :node) = "TERM [
+		if :exprtyp = "I [
+			localmake "res codegen_optimize_getres item 2 :node
+			foreach (oe oe :node) [
+				localmake "res_a codegen_optimize_getres item 2 ?
+				if (item 1 ?) = "PLUS [
+					localmake "res :res+:res_a
+				]
+
+				if (item 1 ?) = "MINUS [
+					localmake :res :res-:res_a
+				]
+			]
+			op (liste "TERM (liste "NUMBER :res))
+		]
+	]
+	; Expr hinzufügen
+ende
+
+pr compiler :fname
+	openread :fname
+	setread :fname 
+	make "recordnames []
+	make "lexer_token readchar
+	; Die Datei ist jetzt geöffnet lz (lies zeichen liest nun ein zeichen der Datei)
+	;while [not eofp] [print lexer]
+	make "infunc "false
+	localmake "additionaltypes []
+	parser_get_sym
+	localmake "res parser_program
+	; Semantische Analyse
+	semanticanalysis :res
+	closeall
+ende
+
+pr concat :list1 :list2 
+	if emptyp :list2 [op :list1]
+	op concat ml el 1 :list2 :list1 oe :list2
+ende
+
+pr ftable_get :funcname
+	foreach :FTABLE [
+		if (item 1 ?) = :funcname [
+			op ?
+		]
+	]
+ende
+
+pr ftable_insertfunc :name :params :vars :rt
+	make "FTABLE ml (liste :name :params :vars :rt) :FTABLE
+ende
+
+pr hoechstenszwei :eingabe
+	wenn (länge :eingabe) = 1 [op :eingabe]
+	op (wort (el 1 :eingabe) (el 2 :eingabe))
+ende
+
+pr istzahl :zeichen
+	wenn :zeichen = "eof [op "false]
+	wenn element? :zeichen [0 1 2 3 4 5 6 7 8 9] [op "true]
+	op "false
+ende
+
+pr istzeichen :c
+
+	wenn :c = "eof [op "false]
+	wenn (alle? ((ascii :c) >= (ascii "A)) ((ascii :c) <= (ascii "Z))) [op "true]
+	wenn (alle? ((ascii :c) >= (ascii "a)) ((ascii :c) <= (ascii "z))) [op "true]
+	op "false
+
+ende
+
+pr lexer
+	; Ende der Datei erreicht?
+	wenn eofp [ op [EOF]]
+	; Ist das Lexem eines, welches vernachlässigt werden kann?
+	wenn :lexer_token = (char 13) [lexer_next op lexer]
+	wenn :lexer_token = (char 32) [lexer_next op lexer]
+	wenn :lexer_token = (char 10) [lexer_next op lexer]
+	; Ist das Lexem der Start eines Kommentares?
+	wenn :lexer_token = "# [lexer_skipcomment op lexer]
+	; Ist das Lexem nicht doppeldeutig?
+	wenn :lexer_token = ". [lexer_next op "DOT]
+	wenn :lexer_token = "|;| [lexer_next op "EOS] ; End of statement
+	wenn :lexer_token = "+ [lexer_next op "PLUS]
+	wenn :lexer_token = "* [lexer_next op "TIMES]
+	wenn :lexer_token = "/ [lexer_next op "DIVIDE]
+	wenn :lexer_token = "- [lexer_next op "MINUS]
+	wenn :lexer_token = ", [lexer_next op "COMMA]
+	wenn :lexer_token = "' [lexer_next localmake "char :lexer_token
+				lexer_next lexer_next op (liste "CHAR :char)
+				]
+	wenn :lexer_token = (char 40) [lexer_next op "LPAREN]
+	wenn :lexer_token = "|)| [lexer_next op "RPAREN]
+	wenn :lexer_token = "|[| [lexer_next op "LBRAK]
+	wenn :lexer_token = "|]| [lexer_next op "RBRAK]
+	; Ist der aktuelle Buchstabe doppeldeutig
+	wenn :lexer_token = "|=| [
+		lexer_next
+		; == (Relationaler Operator)
+		if :lexer_token = "|=| [
+			lexer_next op "EQ
+		]
+	]
+	
+	wenn :lexer_token = ": [
+		lexer_next
+		wenn :lexer_token = "|=| [
+			lexer_next
+			op "UPDATE ; Variablenzuweisungsoperator
+		]
+		op "DOTDOT
+	]
+
+	wenn :lexer_token = "< [
+		lexer_next
+		wenn :lexer_token = "|=| [
+			lexer_next
+			op "LTE
+		]
+		op "LT
+	]
+
+	wenn :lexer_token = "> [
+		lexer_next
+		wenn :lexer_token = "|=| [
+			lexer_next
+			op "GTE
+		]
+		op "GT
+	]
+
+	wenn :lexer_token = "! [
+		lexer_next
+		wenn :lexer_token = "= [
+			lexer_next
+			op "NE
+		]
+	]
+	; Ist das Lexem ein Buchstabe? (Name)
+	wenn istzahl :lexer_token [
+		setze "zahl (wort)
+		while [or (istzahl :lexer_token) (:lexer_token = ".)] [
+			setze "zahl (wort :zahl :lexer_token)
+			lexer_next
+		]
+		ifelse not memberp ". :zahl [
+		op (liste "NUM :zahl)
+		] [
+		op (liste "REALNUM :zahl )
+		]
+		
+	]
+
+	wenn istzeichen :lexer_token [
+		setze "name (wort)
+		while [or (istzahl :lexer_token) (istzeichen :lexer_token)] [
+			setze "name (wort :name :lexer_token)
+			lexer_next
+		]
+		wenn memberp uppercase :name se [ODD PROGRAM BEGIN END ELSE IF THEN WHILE DO FUNCTION VAR CHAR RETURN TO DOWNTO FOR INT REAL RECORD VOID] :recordnames [
+			op uppercase :name
+		]
+		op (liste "NAME :name)
+	]
+	wenn :lexer_token = (char 32) [lexer_next op lexer]
+	lexer_error
+	; Der aktuelle Buchstabe kann keinem Lexem zugeordnet werden.
+ende
+
+pr lexer_error
+	(print (se "Der "Buchstabe "mit "dem "Ascii "Wert (ascii :lexer_token)))
+ende
+
+pr lexer_next 
+	; Das nächste Zeichen wird eingelesen
+	make "lexer_token readchar
+	if eofp [make "lexer_token "eof]
+	wenn :lexer_token = (char 13) [lexer_next ]
+	;wenn :lexer_token = (char 32) [lexer_next ]
+	wenn :lexer_token = (char 9) [lexer_next ]
+ende
+
+pr lexer_skipcomment
+		while [(eines? (:lexer_token <> (char 10)) (eofp))] [make "lexer_token rc ]
+		lexer_next
+ende
+
+pr parser_block
+	parser_exspect_sym "BEGIN
+	parser_get_sym
+	op parser_parseStmts "END
+ende
+
+pr parser_condition 
+	localmake "lhs parser_expression
+	
+	if (memberp :current_token [LT LTE GT GTE EQ NE]) [
+		localmake "operator :current_token
+		
+		parser_get_sym
+		localmake "rhs parser_expression 
+		op (liste "CONDITION :lhs :operator :rhs)
+	]
+	; && verknüpfung einfügen
+	parser_exspect (se "Konditionaloperation )
+end
+
+pr parser_expression
+	localmake "sign parser_term_op
+	
+	localmake "expression (liste "EXPRESSION :sign)
+	
+	localmake "lhs parser_term ; Left Hand side
+	localmake "expression ml :lhs :expression
+	while ["true] [
+		localmake "operator parser_term_op
+		if emptyp :operator [
+			op :expression
+		]
+		localmake "operand parser_term
+		localmake "expression ml (liste :operator :operand) :expression
+	]
+ende
+
+pr parser_exspect_sym :sym
+	if :current_token = uppercase :sym [rk]
+	if (first :current_token) = uppercase :sym [rk]
+	print (se "Exspected :sym "and "got :current_token )
+	; TODO append line number, etc
+	throw "toplevel
+ende
+
+pr parser_factor
+
+	if parser_is_sym "NAME [
+		localmake "value parser_sym_value 
+		parser_get_sym
+
+		if parser_is_sym "LPAREN [
+			
+			; Funktionsaufruf
+			parser_get_sym
+			localmake "args parser_funcargs
+			parser_get_sym
+			op (liste "FUNCCALL :value :args)
+		]
+
+		if parser_is_sym "LBRAK [
+			
+			; Array access
+			parser_get_sym
+			localmake "index parser_expression
+			parser_exspect_sym "RBRAK
+			parser_get_sym
+			
+			; Check if next is dot operator
+			if parser_is_sym "DOT [
+				print "ARRAYACCESSED
+				parser_get_sym
+				localmake "fieldname parser_sym_value
+				parser_get_sym
+				; Nun koennte ein LBRAK folgen
+				if parser_is_sym "LBRAK [
+					parser_get_sym
+					localmake "secondindex parser_expression
+					parser_exspect_sym "RBRAK
+					parser_get_sym
+					print :current_token
+					op (liste "ARRAYFIELDARRAY (liste "NAME :value) :index :fieldname :secondindex)
+				]
+				print :current_token
+				messagebox [][]
+				op (liste "ARRAYFIELD (liste "NAME :value) :index :fieldname )
+			]
+			
+			op (liste "ARRAYELEM (liste "NAME :value) :index)
+		]
+		if parser_is_sym "DOT [
+			; Access to a struct member
+			parser_get_sym
+			localmake "fieldname parser_sym_value
+			parser_get_sym
+			if parser_is_sym "LBRAK [
+				parser_get_sym
+				localmake "index parser_expression
+				parser_exspect_sym "RBRAK
+				parser_get_sym
+				op (liste "FIELDARRAYACCESS (liste "NAME :value) :fieldname :index)
+			]
+			op (liste "FIELDACCESS (liste "NAME :value) :fieldname)
+			
+		]
+		; einfacher name
+		op (liste "NAME :value)
+	]
+	if parser_is_sym "NUM [
+		localmake "value parser_sym_value
+		parser_get_sym
+		op (liste "NUMBER :value)
+	]
+
+	if parser_is_sym "REALNUM [
+		localmake "value parser_sym_value
+		parser_get_sym
+		op (liste "REALNUMBER :value)
+	]
+	if parser_is_sym "CHAR [
+		localmake "value parser_sym_value
+		parser_get_sym
+		op (liste "CHAR :value)
+	]
+	if parser_is_sym "LPAREN [
+		parser_get_sym
+		localmake "expr parser_expression
+		parser_exspect_sym "RPAREN
+		parser_get_sym
+		op :expr
+	]
+
+ende
+
+pr parser_factor_op
+
+	if parser_is_sym "TIMES [
+		parser_get_sym
+		op "TIMES
+	]
+
+	if parser_is_sym "DIVIDE [
+		parser_get_sym
+		op "DIVIDE
+	]
+	op []
+
+ende
+
+pr parser_for 
+	if parser_is_sym "FOR [
+		parser_get_sym
+		parser_exspect_sym "NAME
+		localmake "loopvar parser_sym_value
+		parser_get_sym
+		parser_exspect_sym "UPDATE
+		parser_get_sym
+		localmake "startwert parser_expression
+		if not (eines? parser_is_sym "To parser_is_sym "DOWNTO)  [
+			print (se "Erwartete "TO "oder "Downto "in "For-Schleife )
+		]
+		localmake "direction :current_token
+		parser_get_sym
+		localmake "endwert parser_expression
+		parser_exspect_sym "DO
+		print (se "FORLOOP :startwert :endwert :direction :loopvar )
+		parser_get_sym
+		localmake "stmt []
+		ifelse parser_is_sym "BEGIN [
+			parser_get_sym
+			while [not parser_is_sym "END ][
+				localmake "stmt ml parser_parseStmt :stmt
+				ifelse parser_is_sym "END [
+					
+				] [ 
+					parser_exspect_sym "EOS
+					parser_get_sym
+				]
+			]
+			parser_get_sym
+		] [
+		localmake "stmt (liste parser_parseStmt )
+		
+		]
+		op (list "FOR :loopvar :startwert :endwert :direction :stmt )
+		
+	]
+ende
+
+pr parser_funcargs
+	localmake "args [ARGUMENTS]
+	while [not parser_is_sym "RPAREN ][
+		localmake "args ml parser_expression :args
+		if parser_is_sym "RPAREN [
+			op :args
+		]
+		parser_exspect_sym "COMMA
+		parser_get_sym
+	]
+	op :args
+ende
+
+pr parser_funcdefargs
+	localmake "args [FORMALPARAMETERS]
+	if parser_is_sym "LPAREN [
+		parser_get_sym
+		if not parser_is_sym "RPAREN [
+		while [not parser_is_sym "RPAREN] [
+			
+			localmake "Tname parser_sym_value
+			parser_get_sym
+			localmake "isarray "false
+			ifelse parser_is_sym "LBRAK [
+				localmake "isarray "true
+				parser_get_sym
+				
+				; Name + Länge bekannt => hinzufügen
+				;localmake "variables ml (liste "ARRAY :varname :length ) :variables
+				parser_get_sym
+			] [
+				;localmake "variables ml (liste "NAME :name ) :variables
+			]
+			parser_exspect_sym "DOTDOT
+			parser_get_sym
+			; Typ der Variablen
+			if not ((filter [? = "true] map [parser_is_sym ?] (se [INT CHAR REAL VOID] :recordnames)) = [true]) [
+				parser_exspect_sym (se "Gueltigen "Typennamen)
+				
+			]
+			localmake "type :current_token
+			parser_get_sym
+			ifelse :isarray [
+				localmake "args ml (liste "ARRAYARG :type :Tname ) :args
+			] [
+				localmake "args ml (liste "NAMEARG :type :Tname) :args
+			]
+			if parser_is_sym "RPAREN [
+				;Ende der Argumentliste erreicht
+				parser_get_sym
+				parser_exspect_sym "DOTDOT
+				parser_get_sym
+				wennsonst memberp :current_token [INT CHAR REAL] [
+					localmake "rettype first :current_token
+				][
+					localmake "rettype :current_token
+				]
+
+				parser_get_sym
+				if parser_is_sym "LBRAK [
+					parser_get_sym
+					parser_get_sym
+					localmake "rettype (word "A :rettype)
+				]
+
+				localmake "args ml :rettype :args
+				;parser_get_sym
+				op :args	
+			]
+
+			parser_exspect_sym "COMMA
+			parser_get_sym
+
+		]
+		]
+		; Funktion nimmt keine Argumente an (void)
+				parser_get_sym
+				parser_exspect_sym "DOTDOT
+				parser_get_sym
+				 wennsonst memberp :current_token [INT CHAR REAL VOID] [ localmake "rettype first :current_token] [localmake "rettype first :current_token]
+				parser_get_sym
+				if parser_is_sym "LBRAK [
+					parser_get_sym
+					parser_get_sym
+					localmake "rettype (word "A :rettype)
+				]
+
+				localmake "args ml :rettype :args
+				;parser_get_sym
+				op :args	
+
+	]
+ende
+
+pr parser_function
+	parser_exspect_sym "FUNCTION
+	; Erwarte Funktion
+	parser_get_sym
+	; Funktionsname
+	parser_exspect_sym "NAME
+	localmake "prname parser_sym_value 
+	
+	parser_get_sym
+	localmake "args parser_funcdefargs ; Argumente der Funktionsdefinition
+	print :args
+	localmake "vars parser_variables
+	localmake "infunc "true ; Globale inFunktion wird auf wahr gesetzt (um bei return einen Wert zu haben)
+	localmake "block parser_block
+	localmake "infunc "false
+	parser_exspect_sym "END
+	parser_get_sym
+	localmake "res (liste  "FUNCTION :prname :args :vars :block) 
+	print :res
+	op :res
+ende
+
+pr parser_get_sym
+	make "current_token lexer
+ende
+
+pr parser_is_sym :sym
+	if :current_token = uppercase :sym [op "true]
+	if (first :current_token) = uppercase :sym [op "true]
+	op "false
+
+ende
+
+pr parser_parseStmt
+	; Parsen eines Statements
+	if parser_is_sym "NAME [
+		; Nach Name kann entweder ARRAYASSIGN (x[4] := expr; oder x := 10; stehen
+		localmake "tname parser_sym_value
+		parser_get_sym
+		if parser_is_sym "LBRAK [
+			; Array gefunden
+			parser_get_sym ; Überspringe [
+			localmake "index parser_expression
+			parser_get_sym ; Überspringe ]
+			if parser_is_sym "DOT [
+				parser_get_sym
+				localmake "field parser_sym_value
+				parser_get_sym
+				if parser_is_sym "LBRAK [
+					parser_get_sym
+					localmake "scndindex parser_expression
+					parser_get_sym ; Überspringe ]
+					parser_exspect_sym "UPDATE ; :=
+					parser_get_sym
+					localmake "value parser_expression
+					op (liste "ARRAYFIELDARRAYASSIGN (liste "NAME :tname) :index :field :scndindex :value)
+				]
+				parser_exspect_sym "UPDATE
+				parser_get_sym ; Überspringe :=
+				localmake "value parser_expression
+				op (liste "ARRAYFIELDASSIGN (liste "NAME :tname) :index :field :value)
+			]
+			parser_exspect_sym "UPDATE ; :=
+			parser_get_sym
+			localmake "value parser_expression
+			op (liste "ARRAYASSIGN (liste "NAME :tname ) :index :value )
+		]
+		
+		;Funktionsaufrufe
+		if parser_is_sym "LPAREN [
+			; Funktionsaufruf
+			parser_get_sym ; Überspringe LPAREN
+			localmake "args parser_funcargs 
+			parser_exspect_sym "RPAREN
+			parser_get_sym
+			op (liste "FUNCCALL :tname :args)
+		]
+
+		; Variable aggregar datentypes
+		if parser_is_sym "DOT [
+			parser_get_sym
+			; Dot wurde übersprungen
+			localmake "field parser_sym_value
+			parser_get_sym
+			if parser_is_sym "LBRAK [
+				parser_get_sym
+				localmake "index parser_expression
+				parser_exspect_sym "RBRAK
+				parser_get_sym ;Überspringe ]
+				parser_exspect_sym "UPDATE ; :=
+				parser_get_sym
+				localmake "value parser_expression
+				op (liste "FIELDARRAYASSIGN (liste "NAME :tname) :field :index :value)
+			]
+			localmake "value parser_expression
+			op (liste "FIELDASSIGN (liste "NAME :tname) :field :value)
+			
+		]
+		; Variablenzuweisung (:=)
+		if parser_is_sym "UPDATE [
+			parser_get_sym
+			localmake "wert parser_expression
+			op (liste "ASSIGN :tname :wert )
+		]
+		
+	]
+	if parser_is_sym "IF [
+		op parser_statement_if
+	]
+	if parser_is_sym "WHILE [
+		op parser_while
+	]
+	if parser_is_sym "FOR [
+		op parser_for
+	]
+	if and equalp :infunc "true  parser_is_sym "RETURN [
+		parser_get_sym ; Überspringe das Return
+		localmake "returnval parser_expression
+		op (liste "VALRETURN :returnval )
+	]
+	if (parser_is_sym "RETURN) [
+		parser_get_sym ; Überspringe das Return
+		op (liste "RETURN )
+	]
+	op []
+	
+ende
+
+pr parser_parseStmts :enddel
+	localmake "statements []
+	while [not parser_is_sym :enddel] [
+		; Lies bis zum END Token ein Statement ein
+		localmake "statements ml parser_parseStmt :statements
+		
+		ifelse parser_is_sym :enddel [] [
+			parser_exspect_sym "EOS
+			parser_get_sym
+		]
+
+	]
+	op :statements
+ende
+
+pr parser_procorfuncs
+	localmake "prnfs []
+	while [eines? parser_is_sym "FUNCTION parser_is_sym "PROCEDURE][
+		; Prozedur oder Funktion gefunden
+		if parser_is_sym "FUNCTION [
+			localmake "prnfs ml parser_function :prnfs
+		]
+	
+		if parser_is_sym "PROCEDURE [
+			print "PROCEDURE
+		]
+	]
+	op :prnfs
+ende
+
+pr parser_program
+	parser_exspect_sym "PROGRAM
+	parser_get_sym
+	parser_exspect_sym "NAME
+	localmake "prgname parser_sym_value
+	parser_get_sym
+	if parser_is_sym "RECORD [
+		parser_record
+	]
+	print "PROCORFUNC
+	localmake "fpr parser_procorfuncs
+	localmake "vars parser_variables
+	
+	op (list "PROGRAMME :prgname :fpr)
+ende
+
+pr parser_record
+	make "records [] ; Speichere RECORDS in globaler Variable
+			 ; (um besser darauf zugreigen zu koennen)
+		while [parser_is_sym "RECORD] [
+			parser_get_sym ; Record überspringen
+			parser_exspect_sym "NAME 
+			localmake "recordname (item 2 :current_token )
+			print :recordname
+			parser_get_sym
+			parser_exspect_sym "BEGIN
+			parser_get_sym
+			localmake "relems []
+			while [not parser_is_sym "END ] [
+				parser_exspect_sym "NAME ; Ein Identifier (in diesem Fall Variablenname) wird erwartet
+
+				; Variablennamen speichern (falls es ein Array seien sollte)
+				localmake "varname parser_sym_value
+				
+				parser_get_sym
+				localmake "isarray "false
+				ifelse parser_is_sym "LBRAK [
+					localmake "isarray "true
+					parser_get_sym
+					localmake "length parser_expression
+					
+					; Name + Länge bekannt => hinzufügen
+					;localmake "variables ml (liste "ARRAY :varname :length ) :variables
+					parser_get_sym
+				] [
+					;localmake "variables ml (liste "NAME :name ) :variables
+				]
+				parser_exspect_sym "DOTDOT
+				parser_get_sym
+				; Typ der Variablen
+				if not (eines? (parser_is_sym "REAL) (parser_is_sym "INT ) (parser_is_sym "CHAR ) ) [
+					parser_exspect_sym (se "Gueltigen "Typennamen)
+					
+				]
+				localmake "type :current_token
+				parser_get_sym
+				ifelse :isarray [
+					localmake "relems ml (liste "ARRAY :type :varname :length ) :relems
+				] [
+					localmake "relems ml (liste "NAME :type :varname) :relems
+				]
+				if not parser_is_sym "END [
+				parser_exspect_sym "COMMA
+				parser_get_sym
+				]
+
+			]
+			make "records ml (liste :recordname :relems) :records
+			make "recordnames ml :recordname :recordnames
+
+	]
+	parser_get_sym
+	print :current_token
+ende
+
+pr parser_statement_if
+	if parser_is_sym "IF [
+				parser_get_sym
+		localmake "condition parser_condition
+		parser_exspect_sym "THEN
+		parser_get_sym
+		localmake "stmt []
+		ifelse parser_is_sym "BEGIN [
+			parser_get_sym
+			while [not parser_is_sym "END ][
+				localmake "stmt ml parser_parseStmt :stmt
+				ifelse parser_is_sym "END [
+					
+				] [ 
+					parser_exspect_sym "EOS
+					parser_get_sym
+				]
+			]
+			parser_get_sym
+			
+		] [
+		localmake "stmt (liste parser_parseStmt )
+		parser_get_sym
+		]
+
+	]
+	ifelse not parser_is_sym "ELSE [
+
+	(op (liste "IF :condition :stmt))
+	][
+		print "INELSE
+		parser_get_sym
+		localmake "elsestmt []
+		ifelse parser_is_sym "BEGIN [
+			parser_get_sym
+			while [not parser_is_sym "END ][
+				make "elsestmt ml parser_parseStmt :elsestmt
+				ifelse parser_is_sym "END [ ] [ 
+					parser_exspect_sym "EOS
+					parser_get_sym
+				]
+			]
+			parser_get_sym
+		] [
+		localmake "elsestmt (liste parser_parseStmt )
+		
+		]
+		op (liste "IFELSE :condition :stmt :elsestmt )
+
+	]
+	
+	
+
+	
+ende
+
+pr parser_sym_value
+	op (first butfirst :current_token)
+ende
+
+pr parser_term
+	
+	localmake "expression (liste "TERM )
+	
+	localmake "lhs parser_factor ; Left Hand side
+	localmake "expression ml :lhs :expression
+	while ["true] [
+		localmake "operator parser_factor_op
+		if emptyp :operator [
+			op :expression
+		]
+		localmake "operand parser_factor
+		localmake "expression ml (liste :operator :operand) :expression
+	]
+ende
+
+pr parser_term_op
+
+	if parser_is_sym "PLUS [
+		parser_get_sym
+		op "PLUS
+	]
+
+	if parser_is_sym "MINUS [
+		parser_get_sym
+		op "MINUS
+	]
+	op []
+
+ende
+
+pr parser_variables
+	localmake "variables (liste "VARIABLES )
+	while [parser_is_sym "VAR ] [
+		parser_get_sym ; VAR überspringen
+		parser_exspect_sym "NAME ; Ein Identifier (in diesem Fall Variablenname) wird erwartet
+
+		; Variablennamen speichern (falls es ein Array seien sollte)
+		localmake "varname parser_sym_value
+		
+		parser_get_sym
+		localmake "isarray "false
+		ifelse parser_is_sym "LBRAK [
+			localmake "isarray "true
+			parser_get_sym
+			localmake "length parser_expression
+			
+			; Name + Länge bekannt => hinzufügen
+			;localmake "variables ml (liste "ARRAY :varname :length ) :variables
+			parser_get_sym
+		] [
+			;localmake "variables ml (liste "NAME :name ) :variables
+		]
+		parser_exspect_sym "DOTDOT
+		parser_get_sym
+		; Typ der Variablen
+		if not ((filter [? = "true] map [parser_is_sym ?] (se [INT CHAR REAL] :recordnames)) = [true]) [
+				print (se :current_token "ist "kein "Typenname )
+				parser_exspect_sym (se "Gueltigen "Typennamen)
+				
+		]
+		localmake "type :current_token
+		parser_get_sym
+		ifelse :isarray [
+			localmake "variables ml (liste "ARRAY :type :varname :length ) :variables
+		] [
+			localmake "variables ml (liste "NAME :type :varname) :variables
+		]
+		parser_exspect_sym "EOS
+		parser_get_sym
+
+	]
+	print "EOV
+	op :variables
+end
+
+pr parser_while
+
+	if parser_is_sym "WHILE [
+		parser_get_sym ; Überspringe "WHILE"
+		localmake "condition parser_condition
+		parser_exspect_sym "DO
+		parser_get_sym
+		localmake "stmt []
+		ifelse parser_is_sym "BEGIN [
+			parser_get_sym
+			while [not parser_is_sym "END ][
+				localmake "stmt ml parser_parseStmt :stmt
+				ifelse parser_is_sym "END [
+					
+				] [ 
+					parser_exspect_sym "EOS
+					parser_get_sym
+				]
+			]
+			parser_get_sym
+		] [
+		localmake "stmt (liste parser_parseStmt )
+		]
+		op (liste "WHILE :condition :stmt )
+	]
+
+ende
+
+pr printtree :tree :depth
+	print :depth
+	ifelse listp :tree [
+		
+		for (liste "i 0 :depth) [
+			type "\\t
+		]
+		type (se (item 1 :tree) " )
+		foreach oe :tree [
+			print ? ;:depth+1
+			print "
+		]
+	] [
+		for (liste "i 0 :depth) [
+			type "\\t
+		]
+		type :tree
+		print "
+	]
+ende
+
+pr program_jvm_prgram :node
+
+	; First get the program name
+	print (se ".class (item 2 :node))
+ende
+
+pr semanticanalysis :prg
+	; Semantische Analyse
+	localmake "FTABLE (liste)
+	ftable_insertfunc "itf (liste (liste "I "r ) ) (liste) "R
+	ftable_insertfunc "fti (liste (liste "R) ) (liste) "I
+	ftable_insertfunc "printi (liste (liste "I "n)) (liste) "V
+	ftable_insertfunc "printr (liste (liste "R "n)) (liste) "V
+	ftable_insertfunc "printch (liste (liste "C "n ) ) (liste ) "V
+	ftable_insertfunc "read (liste ) (liste) "I
+	ftable_insertfunc "readr (liste ) (liste) "R
+	ftable_insertfunc "readch (liste ) (liste) "C
+	ftable_insertfunc "random (liste (liste "I "r)) (liste) "I
+
+	ftable_insertfunc "c2i (liste (liste "C "arg )) (liste) "I
+	ftable_insertfunc "i2c (liste (liste "I "arg )) (liste) "C
+	foreach (oe oe :prg) [
+		foreach ? [
+		
+		localmake "args (liste)
+		foreach ol oe (el 3 ?) [
+			print ?
+			ifelse (item 1 ?) = "ARRAYARG [
+				ifelse  memberp item 1 ? [INT REAL CHAR] [
+					make "args ml (liste wort (item 1 item 1 ?) (item 1 item 2 ?) item 3 ?) :args
+				] [
+					make "args ml (liste wort (item 1 item 1 ?) item 2 ? item 3 ?) :args
+				]
+			][
+				ifelse  memberp item 2 ? [INT REAL CHAR] [
+					make "args ml (liste (item 1 item 2 ?) item 3 ? ) :args
+				][
+					print ?
+					make "args ml (liste (item 2 ?) item 3 ? ) :args
+				]
+			]
+
+		]
+		print ">>
+		print :args
+		localmake "vars (liste)
+		localmake "vars (liste)
+			foreach oe (el 4 ?) [
+				print (item 2 ?)
+				wennsonst (el 1 ?) = "ARRAY [
+					ifelse  memberp item 2 ? [INT REAL CHAR] [
+					make "vars ml (liste (wort (item 1 item 1 ?) (item 1 item 2 ?)) item 3 ?) :vars
+					][
+					make "vars ml (liste (wort (item 1 item 1 ?) (item 2 ?)) item 3 ?) :vars
+					]
+				] [
+					ifelse  memberp item 2 ? [INT REAL CHAR] [
+						make "vars ml (liste (item 1 item 2 ?) item 3 ?) :vars
+					][
+						make "vars ml (liste (item 2 ?) item 3 ? ) :vars
+					]
+				]
+			]
+		print :vars
+		ftable_insertfunc (el 2 ?) :args :vars (el 3 ?)
+		]
+	]
+	; Typenueberpruefung
+	foreach (el 3 :prg) [
+		localmake "currentfunc ftable_get (el 2 ?)
+		foreach (el 5 ?) [
+			print ?
+			ignore typecheck ?
+		]
+	]
+	code_opt :prg
+	localmake "jvmorclr yesnobox [CLR ?] [Klicke auf Ja, um für Windows zu kompilieren]
+	ifelse :jvmorclr [
+		; Kompilation für CLR
+		; Generierung von KLassen für Records
+		codegen_clr :prg
+		
+		
+	][
+	; Generierung von Funktionssignaturen
+	print (se "Generating "Function "Signatures )
+	make "funcsign [] ; Globale Liste zur Verwaltung von Funktionssignaturen
+	foreach :ftable [
+		localmake "fdesc (wort  (item 1 ?) "\( )
+		localmake "argtypedesc (wort)
+		foreach (item 2 ?) [
+			foreach (item 1 ?) [
+				if (item 1 ?) = "I [
+					make "argtypedesc wort :argtypedesc "I
+				]
+				
+				if (item 1 ?) = "AI [
+					make "argtypedesc wort :argtypedesc "|[I|
+				]
+				
+				if (item 1 ?) = "R [
+					make "argtypedesc wort :argtypedesc "F ; Nutze Float als "Realersatz"
+				]
+				
+				if (item 1 ?) = "AR [
+					make "argtypedesc wort :argtypedesc "|[F| ; Nutze Float als "Realersatz"
+				]
+
+				if (item 1 ?) = "C [
+					make "argtypedesc wort :argtypedesc "C 
+				]
+				
+				if (item 1 ?) = "AC [
+					make "argtypedesc wort :argtypedesc "|[C| 
+				]
+			]
+		]
+		if emptyp :fdesc [
+			localmake "fdesc "V ; Void sollten keine Argumente vorliegen
+		]
+
+		; Rückgabetyp spezifizieren
+		localmake "returntype "V
+		ifelse not emptyp (item 4 ?) [
+			if (lz item 4 ?)  = "I [
+				make "returntype "I
+			]
+			
+			if (lz item 4 ?)  = "AI [
+				make "returntype "|[I|
+			]
+			
+			if (lz item 4 ?)  = "C [
+				make "returntype "C
+			]
+			
+			if (lz item 4 ?)  = "AC [
+				make "returntype "|[C|
+			]
+			
+			if (lz item 4 ?)  = "R [
+				make "returntype "F
+			]
+			
+			if (lz item 4 ?)  = "AR [
+				make "returntype "|[F|
+			]
+			if (emptyp :returntype) [
+				localmake "returntype "V
+			]
+		][
+		if (emptyp :returntype) [
+			localmake "returntype "V
+		]
+
+		]
+		localmake "fdesc (wort :fdesc :argtypedesc "\) :returntype )
+		print :fdesc
+		print (liste (item 1 ?) :fdesc)
+		make "funcsign ml (liste (item 1 ?) :fdesc) :funcsign ; Fname + Signatur zum Array hinzufügen
+	]
+
+	
+	; Codegenerierung beginnt hier
+	make "labelid 1
+	codegen_jvm :prg
+	]
+ende
+
+pr start
+
+ende
+
+pr teste_r
+	closeall
+	compiler "beispiele/sort.smapa.pas
+	closeall
+ende
+
+pr testit
+	closeall
+	compiler "beispiele/scannertest.smapa
+ende
+
+pr typecheck :node
+	if (item 1 :node) = "ASSIGN [
+		op typecheck_assign :node
+	]
+	if (item 1 :node) = "NAME [
+		op typecheck_name :node
+	]
+	if (item 1 :node) = "EXPRESSION [
+		op typecheck_expression :node
+	]
+	if (item 1 :node) = "TERM [
+		op typecheck_term :node
+	]
+	if (item 1 :node) = "NUMBER [
+		op "I
+	]
+	if (item 1 :node) = "REALNUMBER [
+		op "R
+	]
+	if (item 1 :node) = "CHAR [
+		op "C
+	]
+	if (item 1 :node) = "ARRAYELEM [
+		op typecheck_arrayelem :node
+	]
+	if (item 1 :node) = "ARRAYASSIGN [
+		op typecheck_arrayassign :node
+	]
+	if (item 1 :node) = "FUNCCALL [
+		op typecheck_funccall :node
+	]
+	if (item 1 :node) = "VALRETURN [
+		op typecheck_valreturn :node 
+	]
+	if (item 1 :node) = "CONDITION [
+		op typecheck_condition :node 
+	]
+	if (item 1 :node) = "IF [
+		op typecheck_if :node 
+	]
+	if (item 1 :node) = "IFELSE [
+		op typecheck_if :node 
+	]
+	if (item 1 :node) = "WHILE [
+		op typecheck_while :node 
+	]
+	if (item 1 :node) = "FOR [
+		op typecheck_for :node 
+	]
+
+	; RECORD THINGS
+	; (1) Recordvariablen als Teile von Expr
+	if (item 1 :node) = "ARRAYFIELD [
+		op typecheck_arrayfield :node
+	]
+
+	if (item 1 :node) = "FIELDACCESS [
+		op typecheck_fieldaccess :node
+	]
+
+	if (item 1 :node) = "FIELDARRAYACCESS [
+		op typecheck_fieldarrayaccess :node
+	]
+
+	if (item 1 :node) = "ARRAYFIELDARRAY [
+		op typecheck_arrayfieldarray :node
+	]
+	; (2) Zuweisungen zu Records
+	if (item 1 :node) = "ARRAYFIELDARRAYASSIGN [
+		op typecheck_arrayfieldarrayassign :node
+	]
+
+	if (item 1 :node) = "ARRAYFIELDASSIGN [
+		op typecheck_arrayfieldassign :node
+	]
+
+	if (item 1 :node) = "FIELDASSIGN [
+		op typecheck_fieldassign :node
+	]
+
+	if (item 1 :node) = "FIELDARRAYASSIGN [
+		op typecheck_fieldarrayassign :node
+	]
+	print :node
+	print (se "Not "found! )
+	closeall
+	throw "toplevel
+ende
+
+pr typecheck_arrayassign :node 
+	if not (typecheck item 3 :node ) = "I [
+		print (se "Fehler: "Zuweisung "auf "reeles "Arrayelement "nicht "möglich (item 2 :node))
+		throw "toplevel
+	]
+	; Typecheck
+	if not (first typecheck item 2 :node) = "A [
+		print (se "Arrayzuweisung "ist "nur "auf "Arrays "anwendbar. )
+		closeall
+		throw "toplevel
+		
+	]
+	localmake "vtype typecheck item 4 :node
+	print typecheck item 2 :node
+	if :vtype <> (item 2 typecheck item 2 :node) [
+		print :vtype
+		print (item 2 typecheck item 2 :node)
+		print (se "Zuweisungselemente "der "Arrayzuweisung "passen "nicht ". )
+		closeall
+		throw "toplevel
+	]
+	op "V
+ende
+
+pr typecheck_arrayelem :node
+	if not (typecheck item 3 :node ) = "I [
+		print (se "Fehler: "Zugriff "auf "reeles "Arrayelement "nicht "möglich (item 2 :node))
+		throw "toplevel
+	]
+	op oe typecheck (item 2 :node)
+ende
+
+pr typecheck_arrayfield :node
+	; Get the Variable Type
+	localmake "type typecheck item 2 :node
+	if not (item 1 :type) = "A [
+		print (se "Erwartete "ein "Array, "nicht (item 2 item 2 :node))
+		closeall
+		throw "toplevel
+	]
+	localmake "record filter [(item 1 ?) = oe :type] :records
+	wennsonst (länge :record ) = 1 [
+		localmake "record item 1 :record
+	][
+		print (se "Kein "Recordtyp "mit "dem "Name :type "gefunden! )
+	]
+
+	; Finde das Feld
+	localmake "ftype filter [(item 3 ?) = (item 4 :node)] item 2 :record
+	if leer? :ftype [
+		print (se "Das "Feld (item 4 :node) "konnte "nicht "gefunden "werden )
+		closeall
+		throw "toplevel
+	]
+	make "ftype item 1 :ftype
+	; print item 3 :node
+	ifelse (item 1 :ftype) = "ARRAY [
+		op wort item 1 item 1 :ftype item 1 item 2 :ftype
+	] [
+		op item 1 item 2 :ftype
+	]
+		
+ende
+
+pr typecheck_arrayfieldarray :node
+
+	; Zuerst überprüfen ob Variablen ein Array eines Recordtypes ist
+	localmake "type typecheck item 2 :node
+	if not (item 1 :type) = "A [
+		print (se "Erwartete "ein "Array, "nicht (item 2 item 2 :node))
+		closeall
+		throw "toplevel
+	]
+	; Ueberpruefen ob es ein Record ist
+	localmake "record filter [(item 1 ?) = oe :type] :records
+	wennsonst (länge :record ) = 1 [
+		localmake "record item 1 :record
+	][
+		print (se "Kein "Recordtyp "mit "dem "Name :type "gefunden! )
+		print item 2 item 2 :node
+		closeall
+		throw "toplevel
+	]
+	; Uebrpruefen ob Index Int ist
+	if not (typecheck item 3 :node) = "I [
+		print (se "Arrayindex "muss "vom "Typ "Integer "seien. )
+		throw "toplevel
+		closeall
+	]
+	; Überprüfen ob Recordfeld existiert
+	localmake "ftype filter [(item 3 ?) = (item 4 :node)] item 2 :record
+	if leer? :ftype [
+		print (se "Das "Feld (item 4 :node) "konnte "nicht "gefunden "werden )
+		closeall
+		throw "toplevel
+	]
+	make "ftype item 1 :ftype
+	if not (item 1 :ftype) = "ARRAY [
+		print (se "Es "kann "mithilfe "des "Arrayelementoperators\(\[\]\) "nur "auf "ein "Array "zugegriffen "werden. )
+	]
+
+	; Überprüfen ob zweiter Index Int ist
+	if not (typecheck item 5 :node) = "I [
+		print (se "Arrayindex "muss "vom "Typ "Integer "seien. )
+		throw "toplevel
+		closeall
+	]
+	op item 1 item 2 :ftype
+
+ende
+
+pr typecheck_arrayfieldarrayassign :node
+	localmake "type typecheck item 2 :node
+	if not (item 1 :type) = "A [
+		print (se "Erwartete "ein "Array, "nicht (item 2 item 2 :node))
+		closeall
+		throw "toplevel
+	]
+	; Ueberpruefen ob es ein Record ist
+	localmake "record filter [(item 1 ?) = oe :type] :records
+	wennsonst (länge :record ) = 1 [
+		localmake "record item 1 :record
+	][
+		print (se "Kein "Recordtyp "mit "dem "Name :type "gefunden! )
+		print item 2 item 2 :node
+		closeall
+		throw "toplevel
+	]
+	; Uebrpruefen ob Index Int ist
+	if not (typecheck item 3 :node) = "I [
+		print (se "Arrayindex "muss "vom "Typ "Integer "seien. )
+		
+		closeall
+		throw "toplevel
+		
+	]
+	; Überprüfen ob Recordfeld existiert
+	localmake "ftype filter [(item 3 ?) = (item 4 :node)] item 2 :record
+	if leer? :ftype [
+		print (se "Das "Feld (item 4 :node) "konnte "nicht "gefunden "werden )
+		closeall
+		throw "toplevel
+	]
+	make "ftype item 1 :ftype
+	if not (item 1 :ftype) = "ARRAY [
+		print (se "Es "kann "mithilfe "des "Arrayelementoperators\(\[\]\) "nur "auf "ein "Array "zugegriffen "werden. )
+	]
+
+	; Überprüfen ob zweiter Index Int ist
+	if not (typecheck item 5 :node) = "I [
+		print (se "Arrayindex "muss "vom "Typ "Integer "seien. )
+		closeall
+		throw "toplevel
+		
+	]
+
+	; Überprüfung der rechten Seite 
+	if not (typecheck item 6 :node) = (item 1 item 2 :ftype) [
+		print (se "Arrayrecordarrayfeldzuweisung "falschen "Types! )
+		print (se (typecheck item 6 :node) "<> (item 1 item 2 :ftype))
+		closeall
+		throw "toplevel
+	] 
+	op "V
+ende
+
+pr typecheck_arrayfieldassign :node
+	localmake "type typecheck item 2 :node
+	if not (item 1 :type) = "A [
+		print (se "Erwartete "ein "Array, "nicht (item 2 item 2 :node))
+		closeall
+		throw "toplevel
+	]
+
+	localmake "record filter [(item 1 ?) = oe :type] :records
+	wennsonst (länge :record ) = 1 [
+		localmake "record item 1 :record
+	][
+		print (se "Kein "Recordtyp "mit "dem "Name oe :type "gefunden! )
+	]
+
+	localmake "ftype filter [(item 3 ?) = (item 4 :node)] item 2 :record
+	if leer? :ftype [
+		print (se "Das "Feld (item 4 :node) "konnte "nicht "gefunden "werden )
+		closeall
+		throw "toplevel
+	]
+	make "ftype item 1 :ftype
+
+	if (item 1 :ftype) = "ARRAY [
+		print (se "Zuweisungen "zum "Datentyp "Array "sind "nicht "möglich. )
+		closeall
+		throw "toplevel
+	]
+	localmake "t2 typecheck item 5 :node
+	if not :t2 = item 1 item 2 :ftype [
+		
+		print (se "Zuweisung "falschen "Types!)
+		closeall
+		throw "toplevel
+	]
+	op :t2
+	; Typ herausfinden (sklarer Typ)
+	
+
+ende
+
+pr typecheck_assign :node
+	; Gibt den Typ einer Variable zurück
+	; :node
+	localmake "vartype typecheck (list "NAME (item 2 :node))
+	; print (se "Variable "is "of "type :vartype)
+	print typecheck item 3 :node
+	localmake "assignt typecheck (item 3 :node)
+	if not :vartype = :assignt [
+		print (se "Fehler "Zuweisung "von "falschen "Typen )
+		print (se :vartype "<> :assignt )
+		closeall
+		throw "toplevel
+	]
+	op :vartype
+ende
+
+pr typecheck_condition :node
+	localmake "t1 typecheck item 2 :node
+	localmake "t2 typecheck item 4 :node
+	wennsonst :t1 = :t2 [
+		op :t1
+	] [
+		(print (se "Ein "Konditionaler "Ausdruck "darf "nur "typen "gleichartiger "Operanden "verarbeiten ))
+		(print :t1 "<> :t2)
+	closeall
+		throw "toplevel
+	]
+
+ende
+
+pr typecheck_expression :node
+	localmake "ot "NULL
+	localmake "nt "NULL
+	if (count :node) = 3 [
+		op typecheck (item 3 :node)
+	]
+	foreach oe oe :node [
+		ifelse (count ?) = 3 [
+			localmake "nt typecheck ?
+		] [
+			localmake "nt typecheck item 2 ?
+		]
+		ifelse not :ot = "NULL [
+			if not :ot = :nt [
+				print (se "Expression "wurde "mit "ungleichen "Operatoren "aufgerufen "! )
+				
+				op "err
+			]
+		] [
+			make "ot :nt
+		]
+	]
+	op :ot
+ende
+
+pr typecheck_fieldaccess :node
+	localmake "type typecheck item 2 :node
+	if (item 1 :type) = "A [
+		; Array eines Records
+		print (se "Auf "Array "eines "Records "kann "nicht "mittels "Elementzugriffsoperator "zugegriffen "werden. )
+		closeall
+		throw "toplevel
+	]
+	
+	; Suche den Record
+	localmake "record filter [(item 1 ?) = :type] :records
+	wennsonst (länge :record ) = 1 [
+		localmake "record item 1 :record
+	][
+		print (se "Kein "Recordtyp "mit "dem "Name :type "gefunden! )
+	]
+	; Finde das Feld
+	localmake "feld filter [(item 3 ?) = (item 3 :node)] (item 2 :record)
+	wennsonst (länge :feld) = 1 [
+		localmake "feld item 1 :feld
+	][
+		print (se "Feld "mit "dem "Namen (item 3 :node) "des "Recordtyps :type "konnte "nicht "gefunden "werde. )
+		closeall
+		throw "toplevel
+	]
+	ifelse (item 1 :feld) = "ARRAY [
+		op wort item 1 item 1 :feld item 1 item 2 :feld	] [
+		op item 1 item 2 :feld
+	]
+	
+ende
+
+pr typecheck_fieldarrayaccess :node
+	localmake "type typecheck item 2 :node
+	
+
+	localmake "record filter [(item 1 ?) = :type] :records
+	wennsonst (länge :record ) = 1 [
+		localmake "record item 1 :record
+	][
+		print (se "Kein "Recordtyp "mit "dem "Name :type "gefunden! )
+	]
+
+	; Finde das Feld
+	localmake "ftype filter [(item 3 ?) = (item 3 :node)] item 2 :record
+	if leer? :ftype [
+		print (se "Das "Feld (item 3 :node) "konnte "nicht "gefunden "werden )
+		closeall
+		throw "toplevel
+	]
+	make "ftype item 1 :ftype
+	; print item 3 :node
+
+	if not (item 1 :ftype) = "ARRAY [
+		print (se "Error: "You're "not "accessing "an "Array "Field )
+		closeall
+		throw "toplevel
+ 	]
+
+	op item 1 item 2 :ftype
+	
+ende
+
+pr typecheck_fieldarrayassign :node
+	localmake "type typecheck item 2 :node
+	
+	localmake "record filter [(item 1 ?) = :type] :records
+	wennsonst (länge :record ) = 1 [
+		localmake "record item 1 :record
+	][
+		print (se "Kein "Recordtyp "mit "dem "Name :type "gefunden! )
+	]
+
+	; Finde das Feld
+	localmake "ftype filter [(item 3 ?) = (item 3 :node)] item 2 :record
+	if leer? :ftype [
+		print (se "Das "Feld (item 3 :node) "konnte "nicht "gefunden "werden )
+		closeall
+		throw "toplevel
+	]
+	make "ftype item 1 :ftype
+	; print item 3 :node
+	
+	if not (item 1 :ftype) = "ARRAY [
+		print (se "Error: "You're "not "accessing "an "Array "Field )
+		closeall
+		throw "toplevel
+ 	]
+
+	localmake "t1 item 1 item 2 :ftype
+	localmake "t2 typecheck item 5 :node
+
+	wennsonst :t1 = :t2 [op :t1 ][
+		print (se "Fehlerhafte "Typen "bei "Zuweisung "zu "in "Verbunddatentyp "gespeichertem "Array )
+		print (se :t1 "<> :t2)
+		closeall
+		throw "toplevel
+	]
+
+ende
+
+pr typecheck_fieldassign :node
+	localmake "type typecheck item 2 :node
+	if (item 1 :node) = "A [
+		print (se "Zuweisungen "zu "einem "Array "sind "nicht "erlaubt. )
+		closeall
+		throw "toplevel
+	]
+	localmake "record filter [(item 1 ?) = :type] :records
+	wennsonst (länge :record ) = 1 [
+		localmake "record item 1 :record
+	][
+		print (se "Kein "Recordtyp "mit "dem "Name :type "gefunden! )
+	]
+	; Finde das Feld
+	localmake "feld filter [(item 3 ?) = (item 3 :node)] (item 2 :record)
+	wennsonst (länge :feld) = 1 [
+		localmake "feld item 1 :feld
+	][
+		print (se "Feld "mit "dem "Namen (item 3 :node) "des "Recordtyps :type "konnte "nicht "gefunden "werde. )
+		closeall
+		throw "toplevel
+	]
+	; Finde den Typ des Ausdrucks heraus
+	localmake "t1 typecheck item 4 :node
+	if :t1 = (el 1 el 2 :feld) [
+		op :t1
+	]
+	print (se "Recordfeldzuweisung "falschen "Types )
+	print (se :t1 "<> el 1 el 2 :feld )
+	closeall
+	throw "toplevel
+
+ende
+
+pr typecheck_for :node
+	if (typecheck (liste "NAME (item 2 :node ))) <> "I [
+		print (se "Initialisierungsvariable "des "For-Statements "muss "vom "skalaren "Typ "Integer "seien)
+		closeall
+		throw "toplevel
+	]
+	if (typecheck (item 3 :node )) <> "I [
+		print (se "Startwert "des "For-Statements "muss "vom "skalaren "Typ "Integer "seien)
+		closeall
+		throw "toplevel
+	]
+	if (typecheck (item 4 :node )) <> "I [
+		print (se "Endwert "des "For-Statements "muss "vom "skalaren "Typ "Integer "seien)
+		closeall
+		throw "toplevel
+	]
+	foreach item 6 :node [
+		ignore typecheck ?
+	]
+	op "V
+ende
+
+pr typecheck_funccall :node
+	; 1.Funktion herausfinden
+	localmake "functionname item 2 :node
+	;print :node
+	localmake "fn ftable_get :functionname
+	if not equalp (difference count item 3 :node 1) count item 2 :fn [
+		print (se "Funktion :functionname "erwartete count item 2 :fn "Argumente, "nicht (difference count item 3 :node 1) ".)
+		closeall
+		throw "toplevel
+	] 
+	;print :fn
+	if (count item 2 :fn) = 0 [
+		op uppercase item 1 item 4 :fn
+	]
+	; print (se "Argumente: count item 2 :fn)
+	for (liste "i 1 (count (item 2 :fn ))) [
+		localmake "lct typecheck (item :i+1 item 3 :node)
+		ifelse :lct = (hoechstenszwei item 1 item :i item 2 :fn) [
+			; Typ ist korrekt
+		][
+			print (se "Eine "Funktion "wurde "mit "falschem "Typ "aufgerufen! )
+			
+			print ((se :lct "<> hoechstenszwei (item 1 item :i item 2 :fn)))
+			closeall
+			throw "toplevel
+		]	
+	]
+	op uppercase lz item 4 :fn
+ende
+
+pr typecheck_if :node
+	ignore typecheck item 2 :node
+	foreach item 3 :node [
+		ignore typecheck ?
+	]
+	op "V
+ende
+
+pr typecheck_ifelse :node
+	ignore typecheck item 2 :node
+	foreach item 3 :node [
+		ignore typecheck ?
+	]
+	foreach item 4 :node [
+		ignore typecheck ?
+	]
+	op "V
+ende
+
+pr typecheck_name :node
+	; print :currentfunc
+	foreach (item 2 :currentfunc) [
+		if (item 2 ?) = (item 2 :node) [
+			op (item 1 ?)
+		]
+	]
+	foreach (item 3 :currentfunc) [
+		if (item 2 ?) = (item 2 :node) [
+			op (item 1 ?)
+		]
+	]
+	print (se "Name (item 2 :node) "not "found "in "function (item 1 :currentfunc))
+	closeall
+	throw "toplevel
+ende
+
+pr typecheck_term :node 
+	localmake "ot "NULL
+	localmake "nt "NULL
+	if (count :node) = 2 [
+		op typecheck (item 2 :node)
+	]
+	foreach oe :node [
+		ifelse memberp item 1 ? [TIMES DIVIDE] [
+			localmake "nt  typecheck  item 1 oe ?
+		] [
+			localmake "nt typecheck ?
+		]
+		ifelse not :ot = "NULL [
+			if not :ot = :nt [
+				print (se "Expression "wurde "mit "ungleichen "Operatoren "aufgerufen "! )
+				op "err
+			]
+		] [
+			make "ot :nt
+		]
+	]
+	op :ot
+
+ende
+
+pr typecheck_valreturn :node
+	; print :currentfunc
+	localmake "rt lz item 4 :currentfunc
+	if not (typecheck item 2 :node ) = :rt [
+		print (se "Rueckgabewert "falschen "Types )
+		throw "toplevel
+	]
+	op "V
+ende
+
+pr typecheck_while :node
+	ignore typecheck item 2 :node
+	foreach item 3 :node [
+		ignore typecheck ?
+	]
+	op "
+ende
+
+setze "current_token [EOF]
+setze "funcsign [[itf |itf(I)F|] [fti |fti(F)I|] [printi |printi(I)V|] [printr |printr(F)V|] [printch |printch(C)V|] [read |read()I|] [readr |readr()F|] [readch |readch()C|] [random |random(I)I|] [c2i |c2i(C)I|] [i2c |i2c(I)C|] [main |main(I)V|]]
+setze "infunc "false
+setze "labelid 13
+setze "lexer_token "eof
+setze "me [[0 1 0 0 0 0 0 0 0 0] [0 0 0 0 0 0 0 0 0 0] [0 0 0 0 0 0 0 0 0 0] [0 0 0 0 0 0 0 0 0 0] [0 0 0 0 0 0 0 0 0 0] [0 0 0 0 0 0 0 0 0 0] [0 0 0 0 0 0 0 0 0 0] [0 0 0 0 0 0 0 0 0 0] [0 0 0 0 0 0 0 0 0 0] [0 0 0 0 0 0 0 0 0 0]]
+setze "name "END
+setze "newatrix [[0 0 0 0 0 0 0 0 0 0]]
+setze "prgname "selectionsort
+setze "recordnames [TEST]
+setze "records [[TEST [[NAME INT x] [NAME REAL z] [ARRAY CHAR n [EXPRESSION [] [TERM [NUMBER 22]]]] [ARRAY INT y [EXPRESSION [] [TERM [NUMBER 100]]]]]]]
+setze "test [i [am me]]
+setze "x "dz
+setze "zahl 3

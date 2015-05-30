@@ -1,0 +1,16 @@
+public class Node
+{
+	public object NodeContent;
+        public Node Next;
+}
+
+namespace Projekt1
+{
+      class Program
+      {
+            static void Main(string[] args)
+            {
+            }
+      }
+}
+

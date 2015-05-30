@@ -1,0 +1,46 @@
+pr graph.drucke :graph
+	type (se "# " )
+	foreach (item 1 :graph) [
+		type (se # " )
+	]
+	print "
+	foreach :graph [
+		print (me # ?)
+	]
+	
+ende
+
+pr graph.erstelle :dimension
+	localmake "graph []
+	localmake "graphel []
+	FOR  (liste "i 1 :dimension) [
+		setze "graphel (ml 0 :graphel)
+	]
+	for (liste "i 1 :dimension) [
+		setze "graph (ml :graphel :graph)
+	]
+	op :graph
+ende
+
+pr graph.verbinde :graph :a :b
+	localmake "old (item :a :graph)
+	localmake "new []
+	foreach :old [
+		ifelse # = :b [
+			make "new ml 1 :new
+		] [
+			make "new ml ? :new
+		]
+	]
+	localmake "newgraph []
+	foreach :graph [
+		ifelse # = :a [
+			make "newgraph (ml :new :newgraph)
+		] [
+			make "newgraph (ml ? :newgraph)
+		]
+	]
+	op :newgraph
+ende
+
+setze "graph [[0 1 0 0 0 0 0] [0 0 0 0 0 0 0] [0 0 0 0 0 0 0] [0 0 0 0 0 0 0] [0 0 0 0 0 0 0] [0 0 0 0 0 0 0] [0 0 0 0 0 0 0]]

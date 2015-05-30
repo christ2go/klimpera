@@ -1,0 +1,207 @@
+pr compiler :fname
+	openread :fname
+	setread :fname 
+	make "lexer_token readchar
+	; Die Datei ist jetzt geffnet lz (lies zeichen liest nun ein zeichen der Datei)
+	;while [not eofp] [print lexer]
+	parser_get_sym
+	parser_program
+	closeall
+ende
+
+pr exspect :name
+	if 
+ende
+
+pr istzahl :zeichen
+	wenn :zeichen = "eof [op "false]
+	wenn element? :zeichen [0 1 2 3 4 5 6 7 8 9] [op "true]
+	op "false
+ende
+
+pr istzeichen :c
+
+	wenn :c = "eof [op "false]
+	wenn (alle? ((ascii :c) >= (ascii "A)) ((ascii :c) <= (ascii "Z))) [op "true]
+	wenn (alle? ((ascii :c) >= (ascii "a)) ((ascii :c) <= (ascii "z))) [op "true]
+	op "false
+
+ende
+
+pr lexer
+	; Ende der Datei erreicht?
+	wenn eofp [ op [EOF]]
+	; Ist das Lexem eines, welches vernachlaessigt werden kann?
+	wenn :lexer_token = (char 13) [lexer_next op lexer]
+	wenn :lexer_token = (char 32) [lexer_next op lexer]
+	wenn :lexer_token = (char 10) [lexer_next op lexer]
+	; Ist das Lexem der Start eines Kommentares?
+	wenn :lexer_token = "# [lexer_skipcomment op lexer]
+	; Ist das Lexem nicht doppeldeutig?
+	wenn :lexer_token = ". [lexer_next op "DOT]
+	wenn :lexer_token = "|;| [lexer_next op "EOS] ; End of statement
+	wenn :lexer_token = "+ [lexer_next op "PLUS]
+	wenn :lexer_token = "* [lexer_next op "TIMES]
+	wenn :lexer_token = "/ [lexer_next op "DIVIDE]
+	wenn :lexer_token = "- [lexer_next op "MINUS]
+	wenn :lexer_token = ", [lexer_next op "COMMA]
+	wenn :lexer_token = (char 40) [lexer_next op "LPAREN]
+	wenn :lexer_token = "|)| [lexer_next op "RPAREN]
+	wenn :lexer_token = "|[| [lexer_next op "LBRAK]
+	wenn :lexer_token = "|]| [lexer_next op "RBRAK]
+	; Ist der aktuelle Buchstabe doppeldeutig
+	wenn :lexer_token = "|=| [
+		lexer_next
+		; == (Relationaler Operator)
+		if :lexer_token = "|=| [
+			lexer_next op "EQ
+		]
+	]
+	
+	wenn :lexer_token = ": [
+		lexer_next
+		wenn :lexer_token = "|=| [
+			lexer_next
+			op "UPDATE ; Variablenzuweisungsoperator
+		]
+	]
+
+	wenn :lexer_token = "< [
+		lexer_next
+		wenn :lexer_token = "|=| [
+			lexer_next
+			op "LTE
+		]
+		op "LT
+	]
+
+	wenn :lexer_token = "> [
+		lexer_next
+		wenn :lexer_token = "|=| [
+			lexer_next
+			op "GTE
+		]
+		op "GT
+	]
+
+	wenn :lexer_token = "! [
+		lexer_next
+		wenn :lexer_next = "= [
+			lexer_next
+			op "NE
+		]
+	]
+	; Ist das Lexem ein Buchstabe? (Name)
+	wenn istzahl :lexer_token [
+		setze "zahl (wort)
+		while [istzahl :lexer_token] [
+			setze "zahl (wort :zahl :lexer_token)
+			lexer_next
+		]
+		op (liste "NUM (oe :zahl))
+	]
+
+	wenn istzeichen :lexer_token [
+		setze "name (wort)
+		while [or (istzahl :lexer_token) (istzeichen :lexer_token)] [
+			setze "name (wort :name :lexer_token)
+			lexer_next
+		]
+		wenn memberp uppercase :name [ODD PROGRAM BEGIN END IF THEN WHILE DO FUNCTION VAR RETURN ] [
+			op uppercase :name
+		]
+		op (liste "NAME :name)
+	]
+
+	lexer_error
+	; Der aktuelle Buchstabe kann keinem Lexem zugeordnet werden.
+ende
+
+pr lexer_error
+	(print (se "Der "Buchstabe "mit "dem "Ascii "Wert (ascii :lexer_token)))
+ende
+
+pr lexer_next 
+	; Das naechste Zeichen wird eingelesen
+	make "lexer_token readchar
+	if eofp [make "lexer_token "eof]
+	wenn :lexer_token = (char 13) [lexer_next ]
+	;wenn :lexer_token = (char 32) [lexer_next ]
+	wenn :lexer_token = (char 9) [lexer_next ]
+ende
+
+pr lexer_skipcomment
+		while [(eines? (:lexer_token <> (char 10)) (eofp))] [make "lexer_token rc ]
+		lexer_next
+ende
+
+pr parser_exspect_sym :sym
+	if :current_token = uppercase :sym [rk]
+	if (first :current_token) = uppercase :sym [rk]
+	print (se "Exspected :sym "and "got :current_token )
+	; TODO append line number, etc
+	throw "toplevel
+ende
+
+pr parser_function
+	parser_exspect_sym "FUNCTION
+	; Erwarte Funktion
+	parser_get_sym
+	; Funktionsname
+	parser_exspect_sym "NAME
+	localmake "prname parser_sym_value 
+	
+	parser_get_sym
+	localmake "args parser_funcdefargs ; Argumente der Funktionsdefinition
+	localmake "vars parser_variables
+	localmake "infunc "true ; Globale inFunktion wird auf wahr gesetzt (um bei return einen Wert zu haben)
+ende
+
+pr parser_get_sym
+	make "current_token lexer
+ende
+
+pr parser_is_sym :sym
+	if :current_token = uppercase :sym [op "true]
+	if (first :current_token) = uppercase :sym [op "true]
+	op "false
+
+ende
+
+pr parser_procorfuncs
+	localmake "prnfs []
+	while [eines? parser_is_sym "FUNCTION parser_is_sym "PROCEDURE][
+		; Prozedur oder Funktion gefunden
+		if parser_is_sym "FUNCTION [
+			localmake "prnfs ml parser_function :prnfs
+		]
+	
+		if parser_is_sym "PROCEDURE [
+			print "PROCEDURE
+		]
+	]
+	op :prnfs
+ende
+
+pr parser_program
+	parser_exspect_sym "PROGRAM
+	parser_get_sym
+	parser_exspect_sym "NAME
+	localmake "prgname parser_sym_value
+	parser_get_sym
+	localmake "arguments parser_funcdefargs
+	op (list "PROGRAMME :prgname )
+ende
+
+pr parser_sym_value
+	op (first butfirst :current_token)
+ende
+
+pr start
+
+ende
+
+setze "current_token [NAME square]
+setze "lexer_token "\(
+setze "name "square
+setze "zahl 0

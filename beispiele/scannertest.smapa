@@ -1,0 +1,43 @@
+PROGRAM foom
+FUNCTION main(y[]:int,c:int):real[]
+VAR x:int;
+VAR z[5*14]:real;
+VAR n[15]:int;
+
+BEGIN
+	x := (14+5)*7;
+	z[2] := 23.45+0.75+z[1]; 
+	z := main(n,4);
+	IF z[4] == 1.0 THEN
+	BEGIN
+		x := 12;
+	END
+	ELSE 
+	BEGIN
+	x := 44;
+	
+	END;
+	return z;
+END
+FUNCTION test(x:int):int[]
+Var a[10]:int;
+VAR fl:real;
+BEGIN
+    A[3] := 10;
+    A[5] := read();
+    printi(A[2]);
+    IF x == 4 THEN 
+    BEGIN
+        A[4] := A[2];
+    END
+    ELSE
+    BEGIN
+    	x := 21;
+    END;
+    A[2] := 14;
+    FOR x := 10 TO 14 DO 
+    BEGIN
+    	x := 23;
+    END;
+	return a;
+END
