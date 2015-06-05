@@ -1,0 +1,52 @@
+# Klimpera Square root 
+
+PROGRAM newton
+
+FUNCTION main():void
+VAR d :char;
+VAR x[1]:int;
+BEGIN
+	d := 'x';
+	printch(d);
+	printch('a');
+	printr(average(1.0,4.0));
+	dynarray(x,100);
+END
+
+FUNCTION dynarray(x[]:int,n:int):void
+VAR a[n]:int;
+BEGIN 
+	return a;
+END
+
+FUNCTION square(x:real):real 
+BEGIN 
+	return x*x;
+END
+
+FUNCTION average(x:real,y:real):real
+BEGIN 
+	return (x+y)/2.0;
+END
+
+FUNCTION sqrt(x:real):real
+VAR guess:real;
+BEGIN 
+	guess := 1.0;
+	
+	while (abs(square(guess) - x)) >= 0.001 DO 
+	BEGIN 
+		guess := average(guess,guess/x);
+	END;
+	return guess;
+END
+
+FUNCTION abs(x:real):real
+BEGIN 
+	IF x < 0.0 
+	THEN 
+	BEGIN
+		x := -x;
+	END;	
+	return x;	
+END

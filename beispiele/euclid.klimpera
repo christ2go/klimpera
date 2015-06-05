@@ -1,0 +1,18 @@
+PROGRAM ggt
+
+FUNCTION main():void
+VAR a,b:int;
+BEGIN
+	a := read();
+	b := read();
+	printi(euclid(a,b))
+END
+
+FUNCTION euclid(a:int,b:int):int
+BEGIN
+	IF b == 0 THEN
+	BEGIN 
+		return a;
+	END;
+	return euclid(b,mod(a,b));
+END

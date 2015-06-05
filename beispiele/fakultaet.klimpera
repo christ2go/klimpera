@@ -1,0 +1,21 @@
+PROGRAM factorial
+
+FUNCTION main():void
+VAR i:int;
+BEGIN
+	FOR i := 1 TO 10 DO
+	BEGIN
+		printi(fakueltaet(i));
+	END;
+END
+
+FUNCTION fakueltaet(n:int):int 
+VAR x:int;
+BEGIN
+	IF n == 1 THEN
+	BEGIN
+		return 1;
+	END;
+	RETURN fakueltaet(n-1)*n;
+END 
+

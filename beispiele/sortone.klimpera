@@ -1,0 +1,46 @@
+# Selectionsort in der Klimpera
+PROGRAM sortone
+
+FUNCTION main():void
+VAR a[50000]:int;
+VAR i:int;
+BEGIN
+	FOR i := 0 TO 49999 DO
+	BEGIN
+		a[i] := random(500);
+	END;
+	FOR i := 0 TO 49999 DO
+	BEGIN
+		printi(a[i]);
+	END;
+	printi(0);
+	bubbleSort(a,49999);
+	FOR i := 0 TO 49999 DO
+	BEGIN
+		printi(a[i]);
+	END;
+	return;
+END
+
+FUNCTION bubbleSort(arr[]:int,n:int):void
+VAR i,j,t,done: int;
+
+BEGIN
+	done := 0;
+	WHILE done == 0 DO 
+	BEGIN
+		done := 1;
+		FOR i := 1 TO n DO 
+		BEGIN 
+			IF arr[i-1] > arr[i] THEN 
+			BEGIN
+				done := 0;
+				t := arr[i-1];
+				arr[i-1] := arr[i];
+				arr[i] := t;
+			END;
+		END;
+	END;
+	return;
+END
+

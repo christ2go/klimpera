@@ -1,0 +1,16 @@
+PROGRAM factorial
+
+
+FUNCTION main():void
+VAR i:int;
+BEGIN
+	;
+END
+FUNCTION fakultaet(n:int):int 
+BEGIN
+	IF n == 1 THEN
+	BEGIN
+		return 1;
+	END;	
+	return fakultaet(n-1)*n;
+END 
